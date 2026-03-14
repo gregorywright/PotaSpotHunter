@@ -10,7 +10,9 @@ POTA Spot Hunter fetches active [Parks on the Air](https://parksontheair.com) ac
 
 ## Screenshots
 
-*Screenshots coming soon.*
+![Main spot list](docs/screenshots/main-window.pngDefaultLaunchWindow.png)
+
+![Filtering example](docs/screenshots/FilteredWindowExample.png.png)
 
 ---
 
