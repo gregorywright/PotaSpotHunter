@@ -1,0 +1,1447 @@
+<!DOCTYPE html>
+<!--
+  POTASpotHunter.html
+  ====================
+  A self-contained local web app for browsing live POTA activator spots
+  and tuning MacLoggerDX to them with a single click.
+
+  HOW IT WORKS
+  ------------
+  1. On load, fetches https://api.pota.app/spot/activator via the browser.
+  2. Displays spots in a filterable, sortable table.
+  3. Clicking "Tune" on any row fires two MacLoggerDX URL scheme calls:
+       mldx://tune?freq=XX.XXX&mode=YYY   -- tunes the VFO
+       mldx://lookup?call=CALLSIGN         -- triggers QRZ/HamCall lookup
+     MacLoggerDX handles both natively (no AppleScript needed for clicks).
+  4. A "Refresh" button re-fetches the API without reloading the page.
+
+  MACLOGGERdx URL SCHEME
+  ----------------------
+  Documented at:
+    https://dogparksoftware.com/MacLoggerDX%20Help/mldxfc_script.html
+  Supported URLs used here:
+    mldx://tune?freq=14.074&mode=FT8
+      - Sets VFO frequency (MHz) and mode.
+      - When a radio is connected, physically tunes the radio.
+      - When no radio, sets the displayed frequency/mode.
+    mldx://lookup?call=W1AW
+      - Triggers async QRZ/HamCall lookup for the callsign.
+      - Populates name, QTH, DXCC, grid etc. in the DX/Contest panel.
+  NOTE: The mldx:// scheme requires MacLoggerDX to be running and
+  registered as the handler for that URL scheme (it registers itself
+  on first launch).
+
+  NOTE ON setNOTE / POTA PARK REFERENCE
+  --------------------------------------
+  The mldx:// URL scheme does not expose a setNOTE equivalent, so the
+  park reference cannot be pre-filled via URL alone. As a workaround,
+  the park reference is shown prominently in the UI so the operator can
+  type it into MacLoggerDX's Note field manually. A future enhancement
+  could use a companion AppleScript called via a custom URL handler or
+  osascript, but that is out of scope for this version.
+
+  POTA API
+  --------
+  Endpoint : https://api.pota.app/spot/activator
+  Fields used:
+    activator    - operator callsign
+    frequency    - TX frequency in kHz (string)
+    mode         - operating mode string
+    reference    - POTA park reference (e.g. "US-1234")
+    name         - park name
+    locationDesc - state/country (e.g. "US-TX")
+    spotTime     - ISO-8601 UTC timestamp
+    comments     - free text; spots with "QRT" are filtered out
+    expire       - seconds until spot expires (used for age display)
+
+  US AMATEUR RADIO BANDS (FCC Part 97)
+  -------------------------------------
+  Source: https://www.arrl.org/frequency-allocations
+    160m :  1800 -  2000 kHz
+     80m :  3500 -  4000 kHz
+     60m :  5330 -  5407 kHz
+     40m :  7000 -  7300 kHz
+     30m : 10100 - 10150 kHz
+     20m : 14000 - 14350 kHz
+     17m : 18068 - 18168 kHz
+     15m : 21000 - 21450 kHz
+     12m : 24890 - 24990 kHz
+     10m : 28000 - 29700 kHz
+      6m : 50000 - 54000 kHz
+      2m : 144000 - 148000 kHz
+
+  DESIGN
+  ------
+  Aesthetic: utilitarian radio shack -- dark background, phosphor-green
+  accents, monospace data, a hint of vintage spectrum analyzer.
+  Fonts: "Share Tech Mono" (data/callsigns) + "Barlow Condensed" (UI).
+-->
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>POTA Spot Hunter</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Barlow+Condensed:wght@300;400;600;700&display=swap" rel="stylesheet">
+<style>
+  /* ── Reset & base ─────────────────────────────────────── */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:        #0d0f0e;
+    --surface:   #141714;
+    --surface2:  #1a1d1a;
+    --border:    #2a2e2a;
+    --green:     #39ff6a;
+    --green-dim: #1a7a35;
+    --green-faint: #0d3319;
+    --amber:     #ffb830;
+    --amber-dim: #7a5010;
+    --red:       #ff4444;
+    --text:      #c8d4c8;
+    --text-dim:  #5a6b5a;
+    --text-bright: #e8f4e8;
+    --mono:      'Share Tech Mono', monospace;
+    --ui:        'Barlow Condensed', sans-serif;
+  }
+
+  html, body {
+    height: 100%;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--ui);
+    font-size: 15px;
+    letter-spacing: 0.01em;
+  }
+
+  /* ── Scanline overlay ─────────────────────────────────── */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(0,0,0,0.07) 2px,
+      rgba(0,0,0,0.07) 4px
+    );
+    pointer-events: none;
+    z-index: 1000;
+  }
+
+  /* ── Layout ───────────────────────────────────────────── */
+  #app {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 0 12px;
+  }
+
+  /* ── Header ───────────────────────────────────────────── */
+  header {
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    padding: 10px 0 8px;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+
+  .logo {
+    font-family: var(--mono);
+    font-size: 22px;
+    color: var(--green);
+    text-shadow: 0 0 12px rgba(57,255,106,0.5);
+    letter-spacing: 0.05em;
+    white-space: nowrap;
+  }
+
+  .logo span {
+    color: var(--amber);
+    text-shadow: 0 0 12px rgba(255,184,48,0.5);
+  }
+
+  #status-line {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+    flex: 1;
+    padding-left: 6px;
+  }
+
+  #status-line.loading { color: var(--amber); }
+  #status-line.error   { color: var(--red); }
+  #status-line.ok      { color: var(--green-dim); }
+
+  /* ── Controls bar ─────────────────────────────────────── */
+  #controls {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 0;
+    flex-shrink: 0;
+    flex-wrap: wrap;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .ctrl-label {
+    font-family: var(--ui);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    white-space: nowrap;
+  }
+
+  select, button {
+    font-family: var(--ui);
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    background: var(--surface2);
+    color: var(--text-bright);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 4px 10px;
+    cursor: pointer;
+    outline: none;
+    transition: border-color 0.15s, background 0.15s;
+    -webkit-appearance: none;
+    appearance: none;
+  }
+
+  select {
+    padding-right: 28px;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%235a6b5a'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 8px center;
+  }
+
+  select:hover, select:focus { border-color: var(--green-dim); }
+  select option { background: #1a1d1a; }
+
+  /* Band select gets a green accent when a band is chosen */
+  select#band-select.active { border-color: var(--green); color: var(--green); }
+
+  button { text-transform: uppercase; letter-spacing: 0.1em; }
+
+  #btn-refresh {
+    border-color: var(--green-dim);
+    color: var(--green);
+    font-size: 18px;
+    padding: 2px 10px;
+    line-height: 1;
+  }
+  #btn-refresh:hover { background: var(--green-faint); border-color: var(--green); }
+  #btn-refresh:active { background: #0a2010; }
+  #btn-refresh.spinning { opacity: 0.5; cursor: default; }
+
+  #btn-clear {
+    border-color: var(--amber-dim);
+    color: var(--amber);
+  }
+  #btn-clear:hover { background: #1a1000; border-color: var(--amber); }
+
+  .spot-count {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text-dim);
+    margin-left: auto;
+    white-space: nowrap;
+  }
+  .spot-count strong { color: var(--green); }
+
+  /* ── Table wrapper ────────────────────────────────────── */
+  #table-wrap {
+    flex: 1;
+    overflow-y: auto;
+    margin: 0 -12px;
+    padding: 0 12px;
+  }
+
+  /* Thin custom scrollbar */
+  #table-wrap::-webkit-scrollbar { width: 6px; }
+  #table-wrap::-webkit-scrollbar-track { background: var(--bg); }
+  #table-wrap::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+  /* ── Table ────────────────────────────────────────────── */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-family: var(--mono);
+    font-size: 12.5px;
+  }
+
+  thead {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background: var(--surface);
+  }
+
+  th {
+    font-family: var(--ui);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    padding: 6px 8px;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+    cursor: pointer;
+    user-select: none;
+  }
+
+  th:hover { color: var(--text); }
+  th.sort-asc::after  { content: ' ▲'; color: var(--green); font-size: 9px; }
+  th.sort-desc::after { content: ' ▼'; color: var(--green); font-size: 9px; }
+
+  td {
+    padding: 5px 8px;
+    border-bottom: 1px solid #181b18;
+    vertical-align: middle;
+    white-space: nowrap;
+  }
+
+  tr { transition: background 0.08s; }
+  tr:hover td { background: var(--surface2); cursor: pointer; }
+  tr.tuned td { background: var(--green-faint) !important; }
+  tr.tuned td.callsign { color: var(--green); text-shadow: 0 0 8px rgba(57,255,106,0.4); }
+
+  /* Column-specific styling */
+  td.freq    { color: var(--amber); font-size: 13px; letter-spacing: 0.04em; }
+  td.mode    { color: #8eb88e; font-size: 11px; letter-spacing: 0.08em; }
+  td.callsign { color: var(--text-bright); font-size: 13px; font-weight: bold; letter-spacing: 0.06em; }
+  td.ref     { color: #7ab4ff; font-size: 11px; }
+  td.park    { color: var(--text); max-width: 240px; overflow: hidden; text-overflow: ellipsis; font-family: var(--ui); font-size: 12px; }
+  td.loc     { color: var(--text-dim); font-size: 11px; }
+  td.time    { color: var(--text-dim); font-size: 11px; }
+  td.age     { font-size: 11px; }
+  td.age.fresh  { color: var(--green); }
+  td.age.recent { color: #8eb88e; }
+  td.age.old    { color: var(--text-dim); }
+  td.actions { padding: 3px 8px; }
+
+  /* ── Tune button ──────────────────────────────────────── */
+  .btn-tune {
+    font-family: var(--ui);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    background: transparent;
+    color: var(--green-dim);
+    border: 1px solid var(--green-dim);
+    border-radius: 2px;
+    padding: 3px 10px;
+    cursor: pointer;
+    transition: all 0.12s;
+    white-space: nowrap;
+  }
+  .btn-tune:hover {
+    background: var(--green-faint);
+    color: var(--green);
+    border-color: var(--green);
+    box-shadow: 0 0 8px rgba(57,255,106,0.2);
+  }
+  .btn-tune.tuned {
+    background: var(--green-faint);
+    color: var(--green);
+    border-color: var(--green);
+  }
+
+  /* ── Empty / loading states ───────────────────────────── */
+  #empty-state {
+    display: none;
+    text-align: center;
+    padding: 60px 20px;
+    color: var(--text-dim);
+    font-family: var(--mono);
+    font-size: 13px;
+    line-height: 2;
+  }
+
+  #empty-state .big { font-size: 32px; color: var(--border); display: block; margin-bottom: 12px; }
+
+  /* ── Footer ───────────────────────────────────────────── */
+  footer {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--text-dim);
+    padding: 6px 0;
+    border-top: 1px solid var(--border);
+    flex-shrink: 0;
+    display: flex;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+
+  footer a { color: var(--green-dim); text-decoration: none; }
+  footer a:hover { color: var(--green); }
+
+  /* ── Inline POTA links (callsign + park ref) ─────────── */
+  a.spot-link {
+    color: inherit;
+    text-decoration: none;
+    border-bottom: 1px dotted currentColor;
+    opacity: 0.9;
+  }
+  a.spot-link:hover {
+    opacity: 1;
+    border-bottom-style: solid;
+  }
+
+  /* ── "Connecting…" overlay shown during backend ping ─── */
+  #connecting-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.55);
+    z-index: 2500;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: wait;
+  }
+  #connecting-box {
+    background: var(--surface2);
+    border: 1px solid var(--amber-dim);
+    border-radius: 4px;
+    padding: 22px 36px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    font-family: var(--ui);
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    color: var(--amber);
+    box-shadow: 0 0 30px rgba(0,0,0,0.6);
+  }
+  #connecting-spinner {
+    font-size: 22px;
+    animation: spin 1s linear infinite;
+  }
+  @keyframes spin {
+    from { transform: rotate(0deg); }
+    to   { transform: rotate(360deg); }
+  }
+
+  /* ── Proxy-down full-screen overlay ──────────────────── */
+  #proxy-down-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.85);
+    z-index: 3000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  #proxy-down-box {
+    background: var(--surface2);
+    border: 1px solid var(--amber);
+    border-radius: 4px;
+    width: min(520px, 92vw);
+    box-shadow: 0 0 60px rgba(255,184,48,0.15);
+    font-family: var(--ui);
+  }
+  #proxy-down-icon {
+    font-size: 40px;
+    text-align: center;
+    padding: 20px 0 4px;
+    color: var(--amber);
+    text-shadow: 0 0 20px rgba(255,184,48,0.5);
+  }
+  #proxy-down-title {
+    text-align: center;
+    font-size: 16px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    color: var(--amber);
+    padding: 0 20px 14px;
+    border-bottom: 1px solid var(--border);
+  }
+  #proxy-down-body {
+    padding: 16px 20px;
+    font-size: 13px;
+    line-height: 1.65;
+    color: var(--text);
+  }
+  #proxy-down-body p    { margin-bottom: 8px; }
+  #proxy-down-body ul   { margin: 4px 0 10px 18px; }
+  #proxy-down-body li   { margin-bottom: 3px; }
+  #proxy-down-body pre  {
+    font-family: var(--mono);
+    font-size: 13px;
+    background: var(--surface);
+    border: 1px solid var(--green-dim);
+    border-radius: 3px;
+    padding: 8px 12px;
+    margin: 6px 0 12px;
+    color: var(--green);
+    letter-spacing: 0.04em;
+  }
+  #proxy-down-body strong { color: var(--text-bright); }
+  #proxy-down-body .note  {
+    font-size: 11px;
+    font-family: var(--mono);
+    color: var(--text-dim);
+    margin-top: 10px;
+  }
+  #proxy-down-footer {
+    padding: 12px 20px;
+    border-top: 1px solid var(--border);
+    text-align: center;
+  }
+  #proxy-down-retry {
+    font-family: var(--ui);
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    background: #1a1000;
+    color: var(--amber);
+    border: 1px solid var(--amber);
+    border-radius: 3px;
+    padding: 7px 28px;
+    cursor: pointer;
+    transition: background 0.12s;
+  }
+  #proxy-down-retry:hover { background: #2a1800; }
+
+  /* ── Rig error modal dialog ───────────────────────────── */
+  #rig-error-dialog {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.7);
+    z-index: 2000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  #rig-error-box {
+    background: var(--surface2);
+    border: 1px solid var(--red);
+    border-radius: 4px;
+    width: min(480px, 90vw);
+    box-shadow: 0 0 40px rgba(255,68,68,0.2);
+    font-family: var(--ui);
+  }
+  #rig-error-title {
+    background: #2a0a0a;
+    border-bottom: 1px solid var(--red);
+    padding: 10px 16px;
+    font-size: 14px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    color: var(--red);
+  }
+  #rig-error-body {
+    padding: 16px;
+    font-size: 13px;
+    line-height: 1.6;
+    color: var(--text);
+  }
+  #rig-error-body p  { margin-bottom: 8px; }
+  #rig-error-body ul { margin: 6px 0 8px 18px; }
+  #rig-error-body li { margin-bottom: 4px; }
+  #rig-error-body pre {
+    font-family: var(--mono);
+    font-size: 12px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 6px 10px;
+    margin: 6px 0 10px;
+    color: var(--green);
+  }
+  #rig-error-body strong { color: var(--text-bright); }
+  #rig-error-body em     { color: var(--amber); font-style: normal; }
+  #rig-error-body .detail {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-top: 10px;
+  }
+  #rig-error-footer {
+    padding: 10px 16px;
+    border-top: 1px solid var(--border);
+    text-align: right;
+  }
+  #rig-error-close {
+    font-family: var(--ui);
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    background: #2a0a0a;
+    color: var(--red);
+    border: 1px solid var(--red);
+    border-radius: 3px;
+    padding: 5px 18px;
+    cursor: pointer;
+  }
+  #rig-error-close:hover { background: #3a1010; }
+
+  /* ── Rig control status indicator ────────────────────── */
+  #rig-status {
+    font-family: var(--mono);
+    font-size: 11px;
+    padding: 3px 8px;
+    border-radius: 2px;
+    border: 1px solid transparent;
+    white-space: nowrap;
+  }
+  #rig-status.ok      { color: var(--green);    border-color: var(--green-dim);  background: var(--green-faint); }
+  #rig-status.error   { color: var(--red);      border-color: #7a1010;           background: #1a0505; }
+  #rig-status.waiting { color: var(--amber);    border-color: var(--amber-dim);  background: #1a1000; }
+  #rig-status.hidden  { display: none; }
+
+  /* ── Tooltip for park name overflow ──────────────────── */
+  td.park { position: relative; }
+
+  /* ── Pulse animation for fresh spots ─────────────────── */
+  @keyframes pulse-green {
+    0%   { opacity: 1; }
+    50%  { opacity: 0.5; }
+    100% { opacity: 1; }
+  }
+  .fresh-pulse { animation: pulse-green 2s ease-in-out infinite; }
+</style>
+</head>
+<body>
+<div id="app">
+
+  <!-- Header -->
+  <header>
+    <div class="logo">POTA <span>&#9658;</span> SPOT HUNTER</div>
+    <div id="status-line">Initialising...</div>
+  </header>
+
+  <!-- Controls -->
+  <div id="controls">
+    <span class="ctrl-label">Band</span>
+    <select id="band-select">
+      <option value="ALL">All Bands</option>
+      <option value="160">160m  (1.8–2.0 MHz)</option>
+      <option value="80"> 80m  (3.5–4.0 MHz)</option>
+      <option value="60"> 60m  (5.33–5.41 MHz)</option>
+      <option value="40"> 40m  (7.0–7.3 MHz)</option>
+      <option value="30"> 30m  (10.1–10.15 MHz)</option>
+      <option value="20"> 20m  (14.0–14.35 MHz)</option>
+      <option value="17"> 17m  (18.07–18.17 MHz)</option>
+      <option value="15"> 15m  (21.0–21.45 MHz)</option>
+      <option value="12"> 12m  (24.89–24.99 MHz)</option>
+      <option value="10"> 10m  (28.0–29.7 MHz)</option>
+      <option value="6">   6m  (50–54 MHz)</option>
+      <option value="2">   2m  (144–148 MHz)</option>
+    </select>
+
+    <span class="ctrl-label">Mode</span>
+    <select id="mode-select">
+      <option value="ALL">All Modes</option>
+      <option value="CW">CW</option>
+      <option value="SSB">SSB</option>
+      <option value="FT8">FT8</option>
+      <option value="FT4">FT4</option>
+      <option value="DIGITAL">Digital (other)</option>
+    </select>
+
+    <span class="ctrl-label">Sort</span>
+    <select id="sort-select">
+      <option value="time_desc">Newest first</option>
+      <option value="time_asc">Oldest first</option>
+      <option value="freq_asc">Freq ↑</option>
+      <option value="freq_desc">Freq ↓</option>
+      <option value="call_asc">Callsign A–Z</option>
+    </select>
+
+    <span class="ctrl-label">Rig Control</span>
+    <select id="rig-select">
+      <option value="mldx">MacLoggerDX</option>
+      <option value="flrig">flrig (proxy)</option>
+      <option value="rigctld">rigctld (proxy)</option>
+      <option value="none" selected>None (display only)</option>
+    </select>
+    <span id="rig-status" title="Proxy connection status"></span>
+
+    <span class="ctrl-label">Auto-refresh</span>
+    <select id="refresh-interval">
+      <option value="2">Every 2 min</option>
+      <option value="5">Every 5 min</option>
+      <option value="10">Every 10 min</option>
+      <option value="15">Every 15 min</option>
+      <option value="30">Every 30 min</option>
+      <option value="60">Every 60 min</option>
+      <option value="0">Manual only</option>
+    </select>
+    <button id="btn-refresh" title="Fetch fresh spots from api.pota.app now">&#8635;</button>
+    <button id="btn-clear">&#10005; Clear Tuned</button>
+
+    <span class="spot-count" id="spot-count"></span>
+  </div>
+
+  <!-- Table -->
+  <div id="table-wrap">
+    <table id="spot-table">
+      <thead>
+        <tr>
+          <th data-col="freq"     class="sort-asc">Freq (kHz)</th>
+          <th data-col="mode">Mode</th>
+          <th data-col="callsign">Callsign</th>
+          <th data-col="ref">Park Ref</th>
+          <th data-col="park">Park Name</th>
+          <th data-col="loc">Location</th>
+          <th data-col="time">Spotted (UTC)</th>
+          <th data-col="age">Age</th>
+          <th>Tune</th>
+        </tr>
+      </thead>
+      <tbody id="spot-tbody"></tbody>
+    </table>
+    <div id="empty-state">
+      <span class="big">&#9685;</span>
+      No spots match your filters.<br>
+      Try a different band or mode, or click Refresh for fresh data.
+    </div>
+  </div>
+
+  <!-- Footer -->
+  <footer>
+    <span>Data: <a href="https://api.pota.app/spot/activator" target="_blank">api.pota.app</a> &nbsp;|&nbsp; MacLoggerDX URL scheme: <a href="https://dogparksoftware.com/MacLoggerDX%20Help/mldxfc_script.html" target="_blank">dogparksoftware.com</a></span>
+    <span id="last-fetch"></span>
+  </footer>
+
+</div><!-- #app -->
+
+<script>
+// ============================================================
+// POTASpotHunter.html  —  JavaScript core
+//
+// SOURCES
+// -------
+// POTA API:       https://api.pota.app/spot/activator
+// MacLoggerDX URL scheme:
+//   mldx://tune?freq=XX.XXX&mode=YYY
+//   mldx://lookup?call=CALLSIGN
+//   Documented at: https://dogparksoftware.com/MacLoggerDX%20Help/mldxfc_script.html
+// US band plan:   https://www.arrl.org/frequency-allocations
+//
+// ARCHITECTURE
+// ------------
+// allSpots   — raw array of spot objects from the API (QRT filtered out)
+// rendered   — the currently visible (filtered + sorted) subset
+// Filters and sort are applied in-place on every change; no page reload.
+//
+// SSB -> USB/LSB resolution:
+//   < 10 MHz  -> LSB   (standard amateur band-plan convention)
+//   >= 10 MHz -> USB
+//
+// mldx:// URL scheme notes:
+//   freq parameter expects MHz (e.g. "14.074"), not kHz.
+//   Two separate window.location calls are used: one to tune,
+//   one to lookup.  A small delay is inserted between them so
+//   MacLoggerDX has time to process the first command before
+//   the second arrives.
+// ============================================================
+
+// ── Band table (kHz ranges) ──────────────────────────────
+const BANDS = {
+  '160': [1800,   2000],
+  '80':  [3500,   4000],
+  '60':  [5330,   5407],
+  '40':  [7000,   7300],
+  '30':  [10100, 10150],
+  '20':  [14000, 14350],
+  '17':  [18068, 18168],
+  '15':  [21000, 21450],
+  '12':  [24890, 24990],
+  '10':  [28000, 29700],
+  '6':   [50000, 54000],
+  '2':   [144000, 148000],
+};
+
+// ── State ────────────────────────────────────────────────
+let allSpots  = [];
+let tunedIds  = new Set();   // spotIds the operator has tuned to
+let sortCol   = 'time';
+let sortDir   = 'desc';      // 'asc' | 'desc'
+let lastFetch = null;
+
+// ── Utility functions ────────────────────────────────────
+
+// Convert kHz string to MHz string with up to 6 decimal places.
+// MacLoggerDX tune URL expects MHz.
+function khzToMhz(khz) {
+  const n = parseFloat(khz);
+  if (isNaN(n)) return khz;
+  // Strip trailing zeros but keep at least 3 decimal places
+  return (n / 1000).toFixed(6).replace(/0+$/, '').replace(/\.$/, '');
+}
+
+// Resolve "SSB" to "USB" or "LSB" based on frequency (kHz).
+// Standard amateur band-plan convention:
+//   < 10 MHz -> LSB,  >= 10 MHz -> USB
+function resolveMode(mode, freqKhz) {
+  const m = (mode || '').toUpperCase();
+  if (m === 'SSB') {
+    return parseFloat(freqKhz) < 10000 ? 'LSB' : 'USB';
+  }
+  return m || 'SSB';
+}
+
+// Parse ISO-8601 UTC spotTime to a Date object.
+function parseSpotTime(iso) {
+  // "2024-03-14T16:04:00" -> treat as UTC
+  return new Date(iso.endsWith('Z') ? iso : iso + 'Z');
+}
+
+// Format a Date to "HH:MM" UTC string.
+function fmtUTC(d) {
+  return d.toISOString().slice(11, 16) + 'Z';
+}
+
+// Return a human-readable age string and CSS class.
+function spotAge(d) {
+  const sec = Math.max(0, Math.floor((Date.now() - d.getTime()) / 1000));
+  if (sec < 60)         return { text: sec + 's',              cls: 'fresh'  };
+  if (sec < 3600)       return { text: Math.floor(sec/60) + 'm', cls: sec < 600 ? 'fresh' : 'recent' };
+  return { text: Math.floor(sec/3600) + 'h',  cls: 'old' };
+}
+
+// Escape HTML special chars for safe insertion.
+function esc(s) {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+// Determine which band name a frequency (kHz) falls in.
+function bandOf(freqKhz) {
+  const f = parseFloat(freqKhz);
+  for (const [name, [lo, hi]] of Object.entries(BANDS)) {
+    if (f >= lo && f <= hi) return name;
+  }
+  return null;
+}
+
+// ── Fetch spots from POTA API ────────────────────────────
+async function fetchSpots() {
+  setStatus('loading', 'Fetching spots from api.pota.app…');
+  document.getElementById('btn-refresh').classList.add('spinning');
+
+  try {
+    const res = await fetch('https://api.pota.app/spot/activator', {
+      cache: 'no-cache'
+    });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+
+    // Filter out QRT spots
+    allSpots = data.filter(s => {
+      const c = (s.comments || '').toUpperCase();
+      return !c.includes('QRT');
+    });
+
+    lastFetch = new Date();
+    updateRefreshLabel();
+
+    setStatus('ok', allSpots.length + ' active spots loaded.');
+    render();
+
+  } catch (err) {
+    setStatus('error', 'Fetch failed: ' + err.message +
+      ' — Check internet connection and that api.pota.app is reachable.');
+  } finally {
+    document.getElementById('btn-refresh').classList.remove('spinning');
+  }
+}
+
+// ── Status line helper ───────────────────────────────────
+function setStatus(type, msg) {
+  const el = document.getElementById('status-line');
+  el.textContent = msg;
+  el.className = type;
+}
+
+// ── Filter + sort + render ───────────────────────────────
+function render() {
+  const band  = document.getElementById('band-select').value;
+  const mode  = document.getElementById('mode-select').value;
+  const sort  = document.getElementById('sort-select').value;
+
+  // Update band select styling
+  const bs = document.getElementById('band-select');
+  bs.classList.toggle('active', band !== 'ALL');
+
+  // --- Filter ---
+  let spots = allSpots.filter(s => {
+    // Band filter
+    if (band !== 'ALL') {
+      const [lo, hi] = BANDS[band];
+      const f = parseFloat(s.frequency);
+      if (isNaN(f) || f < lo || f > hi) return false;
+    }
+    // Mode filter
+    if (mode !== 'ALL') {
+      const m = (s.mode || '').toUpperCase();
+      if (mode === 'SSB') {
+        if (m !== 'SSB' && m !== 'USB' && m !== 'LSB' && m !== 'AM') return false;
+      } else if (mode === 'DIGITAL') {
+        const known = ['CW','SSB','USB','LSB','AM','FM'];
+        if (known.includes(m) || m === '') return false;
+      } else {
+        if (m !== mode) return false;
+      }
+    }
+    return true;
+  });
+
+  // --- Sort ---
+  const [sc, sd] = sort.split('_');
+  spots.sort((a, b) => {
+    let va, vb;
+    if (sc === 'freq') {
+      va = parseFloat(a.frequency) || 0;
+      vb = parseFloat(b.frequency) || 0;
+    } else if (sc === 'call') {
+      va = a.activator || '';
+      vb = b.activator || '';
+      return sd === 'asc'
+        ? va.localeCompare(vb)
+        : vb.localeCompare(va);
+    } else {
+      // time
+      va = parseSpotTime(a.spotTime).getTime();
+      vb = parseSpotTime(b.spotTime).getTime();
+    }
+    return sd === 'asc' ? va - vb : vb - va;
+  });
+
+  // --- Update count ---
+  document.getElementById('spot-count').innerHTML =
+    '<strong>' + spots.length + '</strong> spot' + (spots.length !== 1 ? 's' : '') +
+    (band !== 'ALL' ? ' on ' + band + 'm' : '') +
+    (mode !== 'ALL' ? ' / ' + mode : '');
+
+  // --- Render rows ---
+  const tbody = document.getElementById('spot-tbody');
+  const empty = document.getElementById('empty-state');
+
+  if (spots.length === 0) {
+    tbody.innerHTML = '';
+    empty.style.display = 'block';
+    return;
+  }
+  empty.style.display = 'none';
+
+  const rows = spots.map(s => {
+    const freqKhz  = s.frequency || '';
+    const modeRaw  = (s.mode || '').toUpperCase();
+    const modeDisp = resolveMode(s.mode, freqKhz);
+    const callsign = s.activator || '';
+    const ref      = s.reference || '';
+    const park     = s.name || '';
+    const loc      = s.locationDesc || '';
+    const spotTime = parseSpotTime(s.spotTime);
+    const age      = spotAge(spotTime);
+    const id       = s.spotId;
+    const tuned    = tunedIds.has(id);
+    const freshCls = age.cls === 'fresh' ? ' fresh-pulse' : '';
+
+    return `<tr data-id="${id}" data-freq="${esc(freqKhz)}" data-mode="${esc(modeRaw)}"
+                data-callsign="${esc(callsign)}" data-ref="${esc(ref)}" data-park="${esc(park)}"
+                class="${tuned ? 'tuned' : ''}">
+      <td class="freq">${esc(freqKhz)}</td>
+      <td class="mode">${esc(modeDisp)}</td>
+      <td class="callsign"><a class="spot-link" href="https://pota.app/#/profile/${esc(callsign)}" target="_blank" title="POTA profile: ${esc(callsign)}">${esc(callsign)}</a></td>
+      <td class="ref"><a class="spot-link" href="https://pota.app/#/park/${esc(ref)}" target="_blank" title="POTA park: ${esc(ref)}">${esc(ref)}</a></td>
+      <td class="park" title="${esc(park)}">${esc(park.length > 36 ? park.slice(0,34)+'…' : park)}</td>
+      <td class="loc">${esc(loc)}</td>
+      <td class="time">${fmtUTC(spotTime)}</td>
+      <td class="age ${age.cls}${freshCls}">${age.text}</td>
+      <td class="actions">
+        <button class="btn-tune${tuned ? ' tuned' : ''}"
+                onclick="tuneSpot(event, ${id}, '${esc(freqKhz)}', '${esc(modeRaw)}', '${esc(callsign)}', '${esc(ref)}', '${esc(park)}')">
+          ${tuned ? '&#10003; Tuned' : 'Tune'}
+        </button>
+      </td>
+    </tr>`;
+  });
+
+  tbody.innerHTML = rows.join('');
+}
+
+// ── Rig control routing ──────────────────────────────────
+//
+// The "Rig Control" dropdown controls which backend handles tune clicks:
+//
+//   mldx    — MacLoggerDX URL scheme (no proxy needed)
+//               mldx://tune?freq=<MHz>&mode=<mode>
+//               mldx://lookup?call=<callsign>
+//               Ref: https://dogparksoftware.com/MacLoggerDX%20Help/mldxfc_script.html
+//
+//   flrig   — flrig XML-RPC via pota_proxy.py
+//               GET http://localhost:8080/tune/flrig?freq=<kHz>&mode=<mode>
+//               Proxy handles kHz→Hz conversion and XML-RPC call.
+//               Ref: http://www.w1hkj.com/flrig-help/xmlrpc_commands.html
+//
+//   rigctld — Hamlib rigctld via pota_proxy.py  (stub, not yet implemented)
+//               GET http://localhost:8080/tune/rigctld?freq=<kHz>&mode=<mode>
+//
+//   none    — Display only; logs the action but sends no commands.
+//
+// The proxy URL scheme is /tune/<backend>?freq=<kHz>&mode=<mode>.
+// The backend name in the path makes routing explicit and extensible —
+// new backends are added to pota_proxy.py without changing this URL structure.
+//
+// PROXY BASE URL — change this if you run pota_proxy.py on a non-default port.
+const PROXY_BASE = 'http://localhost:8080';
+
+// Show a styled modal dialog explaining a rig connectivity failure.
+// Two distinct failure cases get different instructions:
+//   proxyDown  — pota_proxy.py is not running at all
+//   backendDown — proxy is running but it can't reach the rig software
+function showRigError(backend, proxyDown, detail) {
+  // Remove any existing dialog
+  const old = document.getElementById('rig-error-dialog');
+  if (old) old.remove();
+
+  const backendLabel = {
+    flrig:   'flrig',
+    rigctld: 'rigctld (Hamlib)',
+  }[backend] || backend;
+
+  const proxyInstructions = `
+    <p><strong>pota_proxy.py is not running.</strong></p>
+    <p>Open a terminal and run:</p>
+    <pre>python3 pota_proxy.py</pre>
+    <p>The proxy must be running before you can use the
+    <em>${backendLabel}</em> rig control backend.</p>`;
+
+  const backendInstructions = `
+    <p><strong>${backendLabel} is not reachable.</strong></p>
+    <p>pota_proxy.py is running, but it cannot connect to
+    <em>${backendLabel}</em>. Make sure:</p>
+    <ul>
+      <li>${backendLabel} is open and running on this machine.</li>
+      <li>The radio (or a virtual serial port) is connected.</li>
+      <li>${backendLabel} is configured to listen on the default port
+          ${backend === 'flrig' ? '(12345)' : '(4532)'}.</li>
+    </ul>
+    ${backend === 'rigctld' ? `
+    <p>To install Hamlib and start rigctld:</p>
+    <pre>brew install hamlib          # macOS (Homebrew)
+sudo apt install libhamlib-utils  # Linux
+rigctld -m &lt;model&gt; -r /dev/ttyUSB0 &amp;</pre>
+    <p>Find your radio's model number with: <code>rigctld -l</code></p>` : ''}
+    ${detail ? '<p class="detail">Detail: ' + esc(detail) + '</p>' : ''}`;
+
+  const dialog = document.createElement('div');
+  dialog.id = 'rig-error-dialog';
+  dialog.innerHTML = `
+    <div id="rig-error-box">
+      <div id="rig-error-title">&#9888; Rig Control — ${backendLabel} Unreachable</div>
+      <div id="rig-error-body">
+        ${proxyDown ? proxyInstructions : backendInstructions}
+      </div>
+      <div id="rig-error-footer">
+        <button id="rig-error-close">Dismiss</button>
+      </div>
+    </div>`;
+  document.body.appendChild(dialog);
+  document.getElementById('rig-error-close').addEventListener('click', () => dialog.remove());
+  // Also dismiss on backdrop click
+  dialog.addEventListener('click', e => { if (e.target === dialog) dialog.remove(); });
+}
+
+// Show a blocking "Connecting…" overlay while a backend ping is in flight.
+// This prevents the user from clicking spots or switching backends while
+// we are waiting for a potentially slow TCP timeout (up to ~3-8 seconds).
+function showConnecting(backendLabel) {
+  const old = document.getElementById('connecting-overlay');
+  if (old) old.remove();
+  const div = document.createElement('div');
+  div.id = 'connecting-overlay';
+  div.innerHTML = `
+    <div id="connecting-box">
+      <span id="connecting-spinner">&#8635;</span>
+      Connecting to ${backendLabel}…
+    </div>`;
+  document.body.appendChild(div);
+}
+
+function hideConnecting() {
+  const el = document.getElementById('connecting-overlay');
+  if (el) el.remove();
+}
+
+// Ping the proxy and update the rig status indicator.
+// Shows a blocking "Connecting…" overlay while the ping is in flight.
+// Shows a detailed error dialog on any failure.
+// On failure, always resets the dropdown to "None (display only)" rather
+// than restoring the previous value — this makes it unambiguous that no
+// rig control is active when a backend can't be reached.
+// Called whenever the rig-select dropdown changes.
+async function pingRigBackend(backend, previousValue) {
+  const el  = document.getElementById('rig-status');
+  const sel = document.getElementById('rig-select');
+
+  // mldx and none don't use the proxy — hide the indicator, no ping needed
+  if (backend === 'mldx' || backend === 'none') {
+    el.className = 'hidden';
+    el.textContent = '';
+    return;
+  }
+
+  const backendLabel = { flrig: 'flrig', rigctld: 'rigctld' }[backend] || backend;
+
+  // Block the UI while we wait — rigctld can take several seconds to
+  // respond if the rig software is not running (TCP timeout).
+  showConnecting(backendLabel);
+  el.className = 'waiting';
+  el.textContent = '⟳ checking…';
+
+  try {
+    // Timeout is 8s: the proxy's rigctld socket timeout is 3s, so this
+    // gives the proxy enough time to return a proper JSON error rather
+    // than the browser's own fetch() timing out first (which would
+    // incorrectly show "proxy not running" instead of "rigctld unreachable").
+    const res  = await fetch(`${PROXY_BASE}/ping/${backend}`,
+                             { signal: AbortSignal.timeout(8000) });
+    const data = await res.json();
+
+    hideConnecting();
+
+    if (data.ok) {
+      // Backend is reachable — show version in the indicator
+      el.className = 'ok';
+      el.textContent = '● ' + backend + (data.version ? '  v' + data.version : '');
+    } else {
+      // Proxy is up but can't reach the rig software.
+      // Reset to None so the user can't accidentally think a backend
+      // is active when it isn't.
+      el.className = 'error';
+      el.textContent = '✖ ' + backend + ' unreachable';
+      sel.value = 'none';
+      showRigError(backend, false, data.error);
+    }
+  } catch (err) {
+    hideConnecting();
+    // fetch() threw — proxy is not running or the request timed out.
+    // Reset to None for the same reason as above.
+    el.className = 'error';
+    el.textContent = '✖ proxy not running';
+    sel.value = 'none';
+    showRigError(backend, true, null);
+  }
+}
+
+// ── tuneSpot — routes to the correct backend ─────────────
+//
+// freq and mode are always passed as the raw values from the
+// POTA API (freq in kHz, mode as returned by the API).
+// Each routing branch is responsible for any further conversion
+// its target needs (MHz for mldx://, kHz passed straight to
+// the proxy which converts to Hz internally).
+//
+function tuneSpot(evt, id, freqKhz, modeRaw, callsign, ref, park) {
+  evt.stopPropagation();
+
+  const modeDisp = resolveMode(modeRaw, freqKhz);
+  const rig      = document.getElementById('rig-select').value;
+
+  if (rig === 'mldx') {
+    // ── MacLoggerDX via pota_proxy.py ────────────────────
+    // All MacLoggerDX commands are sent through the proxy using
+    // osascript on the server side.  This gives us setNOTE support
+    // (not available via the mldx:// URL scheme) and avoids all
+    // the popup-blocker and page-navigation issues of URL schemes.
+    //
+    // The proxy calls in sequence (with delay between 3 and 5):
+    //   1. setLogFrequency <MHz>
+    //   2. setLogMode <mode>
+    //   3. lookup <callsign>        — async QRZ/HamCall lookup
+    //   4. delay 1.5s               — wait for lookup to complete
+    //   5. setNOTE <park ref+name>  — pre-fill the Note field
+    //
+    // Fallback: if the proxy is not running, fall back to the
+    // mldx:// URL scheme for freq+mode+lookup only (no setNOTE).
+    const noteText = ('POTA ' + ref + (park ? ' ' + park : '')).slice(0, 60);
+    const url = `${PROXY_BASE}/tune/mldx` +
+                `?freq=${encodeURIComponent(freqKhz)}` +
+                `&mode=${encodeURIComponent(modeDisp)}` +
+                `&callsign=${encodeURIComponent(callsign)}` +
+                `&note=${encodeURIComponent(noteText)}`;
+
+    fetch(url)
+      .then(r => r.json())
+      .then(data => {
+        if (data.ok) {
+          setStatus('ok',
+            'Tuned via MacLoggerDX: ' + freqKhz + ' kHz  ' + modeDisp +
+            '  ' + callsign + '  ' + ref);
+        } else {
+          setStatus('error', 'MacLoggerDX error: ' + (data.error || 'unknown'));
+        }
+      })
+      .catch(() => {
+        // Proxy not running — fall back to mldx:// URL scheme.
+        // setNOTE is not available via URL scheme so only freq+mode+lookup.
+        setStatus('waiting',
+          'Proxy not running — using mldx:// fallback (Note field not set)');
+        function fireMldxUrl(u) {
+          const a = document.createElement('a');
+          a.href = u; a.style.display = 'none';
+          document.body.appendChild(a); a.click();
+          setTimeout(() => a.remove(), 100);
+        }
+        fireMldxUrl('mldx://tune?freq=' + encodeURIComponent(khzToMhz(freqKhz)) +
+                    '&mode=' + encodeURIComponent(modeDisp));
+        setTimeout(() => {
+          fireMldxUrl('mldx://lookup?call=' + encodeURIComponent(callsign));
+        }, 400);
+      });
+    setStatus('waiting', 'Sending to MacLoggerDX…');
+
+  } else if (rig === 'flrig' || rig === 'rigctld') {
+    // ── Proxy backends (flrig, rigctld, …) ──────────────
+    // Send freq in kHz; pota_proxy.py converts to Hz internally.
+    // The backend name is embedded in the URL path so the proxy
+    // log always shows which backend handled each request, and
+    // adding a new backend never changes the URL structure.
+    const url = `${PROXY_BASE}/tune/${rig}` +
+                `?freq=${encodeURIComponent(freqKhz)}` +
+                `&mode=${encodeURIComponent(modeDisp)}`;
+
+    fetch(url)
+      .then(r => r.json())
+      .then(data => {
+        if (data.ok) {
+          setStatus('ok',
+            'Tuned via ' + rig + ': ' + freqKhz + ' kHz  ' + modeDisp +
+            '  ' + callsign + '  —  Park ref: ' + ref);
+          const el = document.getElementById('rig-status');
+          el.className = 'ok';
+        } else {
+          setStatus('error', rig + ' error: ' + (data.error || 'unknown error'));
+          const el = document.getElementById('rig-status');
+          el.className = 'error';
+          el.textContent = '✖ ' + (data.error || 'error');
+        }
+      })
+      .catch(err => {
+        setStatus('error',
+          'Cannot reach proxy at ' + PROXY_BASE +
+          ' — is pota_proxy.py running?  (' + err.message + ')');
+        const el = document.getElementById('rig-status');
+        el.className = 'error';
+        el.textContent = '✖ proxy not running';
+      });
+
+    setStatus('waiting', 'Sending to ' + rig + '…');
+
+  } else {
+    // ── None / display only ──────────────────────────────
+    setStatus('ok',
+      'Display only — no tune sent.  ' + freqKhz + ' kHz  ' +
+      modeDisp + '  ' + callsign + '  ' + ref);
+  }
+
+  // Mark row as tuned regardless of backend (visual feedback)
+  tunedIds.add(id);
+  render();
+}
+
+// ── Row click also triggers tune ─────────────────────────
+document.getElementById('spot-tbody').addEventListener('click', e => {
+  const row = e.target.closest('tr');
+  if (!row || e.target.classList.contains('btn-tune')) return;
+  if (e.target.closest('a.spot-link')) return;
+  const { id, freq, mode, callsign, ref, park } = row.dataset;
+  tuneSpot(e, parseInt(id), freq, mode, callsign, ref, park);
+});
+
+// ── Control event listeners ──────────────────────────────
+document.getElementById('band-select').addEventListener('change', render);
+document.getElementById('mode-select').addEventListener('change', render);
+document.getElementById('sort-select').addEventListener('change', render);
+
+// When the rig backend changes, ping it immediately so the operator
+// gets instant feedback on whether the proxy / rig software is running.
+// On failure, pingRigBackend resets the dropdown to "none" automatically.
+document.getElementById('rig-select').addEventListener('change', e => {
+  pingRigBackend(e.target.value);
+});
+
+document.getElementById('btn-refresh').addEventListener('click', () => {
+  if (!document.getElementById('btn-refresh').classList.contains('spinning')) {
+    fetchSpots();
+  }
+});
+
+document.getElementById('btn-clear').addEventListener('click', () => {
+  tunedIds.clear();
+  render();
+});
+
+// ── Column header sort ───────────────────────────────────
+document.querySelectorAll('th[data-col]').forEach(th => {
+  th.addEventListener('click', () => {
+    const col = th.dataset.col;
+    const sortMap = {
+      freq:     { asc: 'freq_asc',  desc: 'freq_desc'  },
+      time:     { asc: 'time_asc',  desc: 'time_desc'  },
+      callsign: { asc: 'call_asc',  desc: 'call_asc'   },
+    };
+    if (!sortMap[col]) return;
+    const sel = document.getElementById('sort-select');
+    const curVal = sel.value;
+    const newAsc  = sortMap[col].asc;
+    const newDesc = sortMap[col].desc;
+    sel.value = (curVal === newAsc && newDesc !== newAsc) ? newDesc : newAsc;
+    render();
+  });
+});
+
+// ── Auto-refresh — driven by the interval dropdown ───────
+// Choices: 2, 5, 10, 15, 30, 60 minutes, or 0 = manual only.
+// The timer is cancelled and restarted whenever the selection
+// changes, so the new interval takes effect immediately.
+// We never auto-refresh when the tab is hidden (document.hidden)
+// to avoid waking the network unnecessarily.
+let autoRefreshTimer = null;
+
+function startAutoRefresh() {
+  if (autoRefreshTimer) {
+    clearInterval(autoRefreshTimer);
+    autoRefreshTimer = null;
+  }
+  const minutes = parseInt(document.getElementById('refresh-interval').value, 10);
+  if (minutes > 0) {
+    autoRefreshTimer = setInterval(() => {
+      if (!document.hidden) fetchSpots();
+    }, minutes * 60 * 1000);
+  }
+  updateRefreshLabel();
+}
+
+function updateRefreshLabel() {
+  const minutes = parseInt(document.getElementById('refresh-interval').value, 10);
+  const el = document.getElementById('last-fetch');
+  const fetchStr = lastFetch ? 'Last fetch: ' + fmtUTC(lastFetch) : '';
+  const intervalStr = minutes > 0
+    ? '  |  Auto-refresh: every ' + minutes + ' min'
+    : '  |  Auto-refresh: off';
+  el.textContent = fetchStr + intervalStr;
+}
+
+document.getElementById('refresh-interval').addEventListener('change', startAutoRefresh);
+
+// ── Startup: require proxy to be running ─────────────────
+//
+// The proxy is not optional.  On every page load we ping it before
+// doing anything else.  If it responds we proceed normally.
+// If it does not respond we block the entire UI and show a clear
+// error explaining how to start pota_proxy.py.
+//
+// This covers all four scenarios:
+//   1. Proxy started first, opens browser automatically → ping succeeds.
+//   2. Browser opened while proxy is running → ping succeeds.
+//   3. Browser opened with no proxy → ping fails → error shown.
+//   4. Proxy was running, user closed the tab, re-opens it → ping
+//      succeeds because the proxy is still running.
+//
+async function startupProxyCheck() {
+  setStatus('loading', 'Connecting to pota_proxy.py…');
+
+  try {
+    const res  = await fetch(`${PROXY_BASE}/ping/mldx`,
+                             { signal: AbortSignal.timeout(3000) });
+    const data = await res.json();
+
+    if (data.ok) {
+      // Proxy is up and MacLoggerDX is reachable — proceed normally.
+      setStatus('ok', 'Connected to proxy  ·  MacLoggerDX v' + (data.version || '?'));
+
+      // Start auto-refresh timer and load initial spot data.
+      startAutoRefresh();
+      fetchSpots();
+
+    } else {
+      // Proxy is up but MacLoggerDX is not running.
+      // Still let the page load — the operator may want to
+      // browse spots and switch to a different backend.
+      setStatus('error', 'Proxy running but MacLoggerDX unreachable: ' + (data.error || ''));
+      showRigError('mldx', false, data.error);
+      startAutoRefresh();
+      fetchSpots();
+    }
+
+  } catch (err) {
+    // Proxy is not running at all — block the UI entirely.
+    showProxyDownError();
+  }
+}
+
+// Show a full-screen blocking error when the proxy cannot be reached.
+// This replaces the normal UI so the user cannot accidentally try to
+// use the app without the proxy.
+function showProxyDownError() {
+  setStatus('error', 'pota_proxy.py is not running');
+
+  // Dim the app and overlay a blocking message.
+  // We do not use the standard rig-error modal here because we want
+  // something more prominent that covers the whole interface.
+  document.getElementById('app').style.filter = 'blur(3px) opacity(0.3)';
+
+  const overlay = document.createElement('div');
+  overlay.id = 'proxy-down-overlay';
+  overlay.innerHTML = `
+    <div id="proxy-down-box">
+      <div id="proxy-down-icon">&#9888;</div>
+      <div id="proxy-down-title">POTA Spot Hunter requires pota_proxy.py</div>
+      <div id="proxy-down-body">
+        <p>The local proxy server is not running. The proxy is required to:</p>
+        <ul>
+          <li>Control MacLoggerDX (set frequency, mode, callsign, and note)</li>
+          <li>Interface with flrig and rigctld rig-control backends</li>
+        </ul>
+        <p><strong>To start the proxy, open a terminal and run:</strong></p>
+        <pre>python3 pota_proxy.py</pre>
+        <p>The proxy will automatically open this page in your browser
+           once it is ready. You can also reload this page after
+           starting the proxy.</p>
+        <p class="note">pota_proxy.py must be in the same folder as
+           POTASpotHunter.html.</p>
+      </div>
+      <div id="proxy-down-footer">
+        <button id="proxy-down-retry">&#8635; Retry</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+
+  document.getElementById('proxy-down-retry').addEventListener('click', async () => {
+    overlay.remove();
+    document.getElementById('app').style.filter = '';
+    await startupProxyCheck();
+  });
+}
+
+// Kick off the startup check.  Everything else waits for this.
+// Note: the rig dropdown defaults to "none" (set in the HTML), so
+// startupProxyCheck only needs to ping mldx — it does not need to
+// seed any previous-value tracker since pingRigBackend always falls
+// back to 'none' on error rather than a stored previous value.
+startupProxyCheck();
+</script>
+</body>
+</html>
