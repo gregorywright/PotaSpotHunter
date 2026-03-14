@@ -276,6 +276,6 @@ Copyright (c) 2025 Gregory Wright (W7GFW) &lt;greg@gregorywright.org&gt;
 
 ## 73
 
-If you find this useful, feel free to open an issue or pull request on GitHub. Spot me on the air — W7GFW doing parks near Seattle.
+See you on the air. I am usually doing CW at parks near Seattle, and the random contest. 
 
 *de W7GFW*
