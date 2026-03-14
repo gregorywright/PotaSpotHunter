@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+#
+# Copyright (c) 2025 Gregory Wright (W7GFW) <greg@gregorywright.org>
+# SPDX-License-Identifier: MIT
+# https://github.com/gregorywright/PotaSpotHunter
+#
 """
 pota_proxy.py
 =============
