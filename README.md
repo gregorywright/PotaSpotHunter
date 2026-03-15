@@ -46,17 +46,17 @@ The app is split into two files that work together:
 
 | File | Purpose |
 |---|---|
-| `POTASpotHunter.html` | The web UI — runs in any modern browser |
-| `pota_proxy.py` | Local Python proxy — bridges the browser to rig-control software |
+| `PotaSpotHunter.html` | The web UI — runs in any modern browser |
+| `PotaProxy.py` | Local Python proxy — bridges the browser to rig-control software |
 
 The browser cannot talk directly to MacLoggerDX, flrig, or rigctld because of the browser's same-origin security policy. The proxy runs locally on your machine, accepts simple HTTP requests from the web page, and forwards commands to whichever rig-control backend you have configured.
 
 ```
-Browser (POTASpotHunter.html)
+Browser (PotaSpotHunter.html)
         │
         │  HTTP  GET /tune/mldx?freq=14074&mode=FT8&callsign=W1AW&note=POTA+US-1234
         ▼
-pota_proxy.py  (localhost:8080)
+PotaProxy.py  (localhost:8080)
         │
         ├── MacLoggerDX  via osascript / AppleScript
         ├── flrig        via XML-RPC  (port 12345)
@@ -98,10 +98,10 @@ Make sure MacLoggerDX, flrig, or rigctld is running and connected to your radio 
 ### 3. Start the proxy
 
 ```bash
-python3 pota_proxy.py
+python3 PotaProxy.py
 ```
 
-The proxy will automatically open `POTASpotHunter.html` in your default browser. Both files must be in the same directory.
+The proxy will automatically open `PotaSpotHunter.html` in your default browser. Both files must be in the same directory.
 
 ### 4. Select a backend and start hunting
 
@@ -125,7 +125,7 @@ When you click Tune, the proxy will:
 flrig must be running and connected to your radio. Default host/port is `127.0.0.1:12345`. To use a non-default port:
 
 ```bash
-python3 pota_proxy.py --rig-port 12346
+python3 PotaProxy.py --rig-port 12346
 ```
 
 ### rigctld (Hamlib)
@@ -158,7 +158,7 @@ rigctld -m <model> -r <device> -t 4532
 
 To use a non-default rigctld port:
 ```bash
-python3 pota_proxy.py --rigctld-port 4533
+python3 PotaProxy.py --rigctld-port 4533
 ```
 
 ---
@@ -166,7 +166,7 @@ python3 pota_proxy.py --rigctld-port 4533
 ## Proxy Command-Line Options
 
 ```
-usage: pota_proxy.py [-h] [--backend {mldx,flrig,rigctld}]
+usage: PotaProxy.py [-h] [--backend {mldx,flrig,rigctld}]
                      [--port PORT] [--rig-host HOST]
                      [--rig-port PORT] [--rigctld-port PORT]
                      [--no-browser] [--debug]
@@ -185,13 +185,13 @@ options:
 
 ```bash
 # Default — MacLoggerDX backend, opens browser automatically
-python3 pota_proxy.py
+python3 PotaProxy.py
 
 # Use flrig on a non-default port, suppress browser auto-open
-python3 pota_proxy.py --backend flrig --rig-port 12346 --no-browser
+python3 PotaProxy.py --backend flrig --rig-port 12346 --no-browser
 
 # Use rigctld on a remote machine on the local network
-python3 pota_proxy.py --backend rigctld --rig-host 192.168.1.50
+python3 PotaProxy.py --backend rigctld --rig-host 192.168.1.50
 ```
 
 ---
@@ -239,11 +239,11 @@ All responses are JSON with an `ok` field:
 
 The proxy is designed to be extended. To add a new backend (e.g. OmniRig, DX Lab Suite Commander):
 
-1. Create a class that inherits from `RigBackend` in `pota_proxy.py`
+1. Create a class that inherits from `RigBackend` in `PotaProxy.py`
 2. Implement `tune(freq_hz, mode)` — receives frequency in Hz and a mode string
 3. Optionally implement `ping()` for connection health checks
 4. Register it in the `_build_backends()` function
-5. Add it to the `rig-select` dropdown in `POTASpotHunter.html`
+5. Add it to the `rig-select` dropdown in `PotaSpotHunter.html`
 
 See the `FlrigBackend` and `RigctldBackend` classes for worked examples.
 
@@ -253,10 +253,12 @@ See the `FlrigBackend` and `RigctldBackend` classes for worked examples.
 
 ```
 PotaSpotHunter/
-├── POTASpotHunter.html   # Web UI — open this in your browser
-├── pota_proxy.py         # Local proxy server
+├── PotaSpotHunter.html   # Web UI — open this in your browser
+├── PotaProxy.py         # Local proxy server
 ├── LICENSE               # MIT License
 ├── .gitignore
+├── CHANGELOG.md          # Version history
+├── requirements.txt      # No third-party dependencies (documents intent)
 └── README.md
 ```
 
