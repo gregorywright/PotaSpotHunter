@@ -57,6 +57,8 @@
     spotTime     - ISO-8601 UTC timestamp
     comments     - free text; spots with "QRT" are filtered out
     expire       - seconds until spot expires (used for age display)
+    latitude     - park latitude (decimal degrees)
+    longitude    - park longitude (decimal degrees)
 
   US AMATEUR RADIO BANDS (FCC Part 97)
   -------------------------------------
@@ -87,6 +89,8 @@
 <title>POTA Spot Hunter</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Barlow+Condensed:wght@300;400;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin=""/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
 <style>
   /* ── Reset & base ─────────────────────────────────────── */
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -142,6 +146,16 @@
     max-width: 1400px;
     margin: 0 auto;
     padding: 0 12px;
+    overflow: hidden;
+  }
+
+  /* The content area below controls+header holds the split panes */
+  #split-area {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    min-height: 0;
   }
 
   /* ── Header ───────────────────────────────────────────── */
@@ -261,10 +275,10 @@
 
   /* ── Table wrapper ────────────────────────────────────── */
   #table-wrap {
-    flex: 1;
     overflow-y: auto;
     margin: 0 -12px;
     padding: 0 12px;
+    /* height set by JS split logic */
   }
 
   /* Thin custom scrollbar */
@@ -617,6 +631,144 @@
     100% { opacity: 1; }
   }
   .fresh-pulse { animation: pulse-green 2s ease-in-out infinite; }
+
+  /* ── Map panel ────────────────────────────────────────── */
+  #map-panel {
+    display: none;
+    flex-direction: column;
+    overflow: hidden;
+    /* height set by JS split logic */
+  }
+  #map-panel.open { display: flex; }
+
+  /* Resize handle between table and map */
+  #split-divider {
+    flex-shrink: 0;
+    height: 6px;
+    background: var(--border);
+    cursor: ns-resize;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.15s;
+    position: relative;
+    z-index: 50;
+  }
+  #split-divider.visible { display: flex; }
+  #split-divider:hover,
+  #split-divider.dragging { background: var(--green-dim); }
+  #split-divider::after {
+    content: '';
+    width: 40px;
+    height: 2px;
+    border-radius: 1px;
+    background: var(--text-dim);
+  }
+  #split-divider:hover::after,
+  #split-divider.dragging::after { background: var(--green); }
+
+  #map-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 4px 0;
+    font-family: var(--ui);
+    font-size: 11px;
+    color: var(--text-dim);
+    flex-shrink: 0;
+    border-top: 1px solid var(--border);
+  }
+  #map-toolbar strong { color: var(--green-dim); }
+
+  #map-close {
+    margin-left: auto;
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    font-size: 13px;
+    line-height: 1;
+    padding: 1px 6px;
+    border-radius: 2px;
+    cursor: pointer;
+    letter-spacing: 0;
+    text-transform: none;
+    transition: color 0.12s, border-color 0.12s;
+  }
+  #map-close:hover { color: var(--red); border-color: var(--red); background: transparent; }
+
+  #map-container {
+    flex: 1;
+    min-height: 0;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    overflow: hidden;
+  }
+
+  /* Override Leaflet tile brightness so tiles match the dark theme */
+  #map-container .leaflet-tile {
+    filter: brightness(0.75) saturate(0.7);
+  }
+
+  /* Leaflet popup styled to match the app */
+  .leaflet-popup-content-wrapper {
+    background: var(--surface2) !important;
+    color: var(--text) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: 3px !important;
+    box-shadow: 0 0 16px rgba(0,0,0,0.6) !important;
+    font-family: var(--ui) !important;
+    font-size: 13px !important;
+  }
+  .leaflet-popup-tip {
+    background: var(--surface2) !important;
+  }
+  .leaflet-popup-content {
+    margin: 10px 14px !important;
+    line-height: 1.55 !important;
+  }
+  .map-popup-call {
+    font-family: var(--mono);
+    font-size: 14px;
+    font-weight: bold;
+    color: var(--text-bright);
+    letter-spacing: 0.06em;
+  }
+  .map-popup-freq {
+    color: var(--amber);
+    font-family: var(--mono);
+    font-size: 12px;
+  }
+  .map-popup-ref {
+    color: #7ab4ff;
+    font-family: var(--mono);
+    font-size: 11px;
+  }
+  .map-popup-park {
+    color: var(--text);
+    font-size: 12px;
+    margin-top: 3px;
+    max-width: 200px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* Toggle map button */
+  #btn-map {
+    border-color: #2a5a7a;
+    color: #7ab4ff;
+  }
+  #btn-map:hover { background: #0a1a2a; border-color: #7ab4ff; }
+  #btn-map.active {
+    background: #0a1a2a;
+    border-color: #7ab4ff;
+    color: #aad4ff;
+  }
+
+  /* Highlighted marker for selected row */
+  .marker-selected {
+    filter: drop-shadow(0 0 6px rgba(57,255,106,0.9));
+  }
 </style>
 </head>
 <body>
@@ -687,9 +839,13 @@
     </select>
     <button id="btn-refresh" title="Fetch fresh spots from api.pota.app now">&#8635;</button>
     <button id="btn-clear">&#10005; Clear Tuned</button>
+    <button id="btn-map" title="Toggle world map">&#9783; Map</button>
 
     <span class="spot-count" id="spot-count"></span>
   </div>
+
+  <!-- Split area: table + resizable divider + map -->
+  <div id="split-area">
 
   <!-- Table -->
   <div id="table-wrap">
@@ -715,6 +871,21 @@
       Try a different band or mode, or click Refresh for fresh data.
     </div>
   </div>
+
+  <!-- Drag handle -->
+  <div id="split-divider"></div>
+
+  <!-- Map panel -->
+  <div id="map-panel">
+    <div id="map-toolbar">
+      <strong id="map-spot-count"></strong>
+      <span id="map-hint">· Click a marker to select · Click a row to pan the map</span>
+      <button id="map-close" title="Close map">&#10005;</button>
+    </div>
+    <div id="map-container"></div>
+  </div>
+
+  </div><!-- #split-area -->
 
   <!-- Footer -->
   <footer>
@@ -943,6 +1114,7 @@ function render() {
   if (spots.length === 0) {
     tbody.innerHTML = '';
     empty.style.display = 'block';
+    updateMap([]);
     return;
   }
   empty.style.display = 'none';
@@ -982,6 +1154,7 @@ function render() {
   });
 
   tbody.innerHTML = rows.join('');
+  updateMap(spots);
 }
 
 // ── Rig control routing ──────────────────────────────────
@@ -1272,9 +1445,326 @@ document.getElementById('spot-tbody').addEventListener('click', e => {
   if (e.target.closest('a.spot-link')) return;
   const { id, freq, mode, callsign, ref, park } = row.dataset;
   tuneSpot(e, parseInt(id), freq, mode, callsign, ref, park);
+  // Also pan map to this spot if map is open
+  mapPanToSpot(parseInt(id));
 });
 
-// ── Control event listeners ──────────────────────────────
+// ── Map ──────────────────────────────────────────────────
+//
+// Uses Leaflet.js with OpenStreetMap tiles (no API key required).
+// The map is hidden by default and toggled with the ⊕ Map button.
+// It stays in sync with the filtered spot list via updateMap(),
+// which is called at the end of render().
+//
+// Marker colours mirror the age-indicator scheme:
+//   green  — fresh  (< 10 min)
+//   #8eb88e — recent (10–60 min)
+//   dim     — old   (> 60 min)
+//
+// Clicking a marker:
+//   1. Opens a popup with callsign / freq / mode / park ref / park name
+//   2. Highlights the matching table row and scrolls it into view
+//   3. Exposes a "Tune" button in the popup that calls tuneSpot()
+//
+// Clicking a table row (via the existing listener above) pans and
+// zooms the map to that spot's marker.
+
+let leafletMap       = null;   // Leaflet map instance (created on first open)
+let markersLayer     = null;   // Leaflet LayerGroup holding all circle markers
+let markerIndex      = {};     // spotId → Leaflet marker, rebuilt on each render
+let selectedMarkerId = null;   // spotId of the currently highlighted marker
+
+// Colour for a spot based on its age class
+function markerColor(ageClass) {
+  if (ageClass === 'fresh')  return '#39ff6a';
+  if (ageClass === 'recent') return '#8eb88e';
+  return '#2a3a2a';
+}
+
+// Build a Leaflet divIcon circle so we can colour it freely
+function makeMarkerIcon(ageClass, selected) {
+  const color  = markerColor(ageClass);
+  const size   = selected ? 14 : 10;
+  const shadow = selected
+    ? `box-shadow:0 0 8px 3px rgba(57,255,106,0.7);` : '';
+  return L.divIcon({
+    className: '',
+    html: `<div style="
+      width:${size}px;height:${size}px;
+      border-radius:50%;
+      background:${color};
+      border:2px solid ${selected ? '#fff' : 'rgba(0,0,0,0.5)'};
+      ${shadow}
+      box-sizing:border-box;
+    "></div>`,
+    iconSize:   [size, size],
+    iconAnchor: [size/2, size/2],
+    popupAnchor:[0, -(size/2 + 4)],
+  });
+}
+
+// Initialise the Leaflet map exactly once, the first time the panel opens.
+function initMap() {
+  if (leafletMap) return;
+
+  leafletMap = L.map('map-container', {
+    center: [20, 0],
+    zoom:   2,
+    minZoom: 1,
+    worldCopyJump: true,
+    zoomControl: true,
+  });
+
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a>',
+    maxZoom: 18,
+  }).addTo(leafletMap);
+
+  markersLayer = L.layerGroup().addTo(leafletMap);
+}
+
+// Called by render() to keep the map in sync with the filtered spot list.
+// renderedSpots is the same filtered+sorted array render() displays.
+let lastRenderedSpots = [];
+
+function updateMap(spots) {
+  lastRenderedSpots = spots;
+  if (!leafletMap) return;   // map not open yet — will be populated on open
+
+  markersLayer.clearLayers();
+  markerIndex = {};
+
+  spots.forEach(s => {
+    if (s.latitude == null || s.longitude == null) return;
+
+    const freqKhz  = s.frequency || '';
+    const modeRaw  = (s.mode || '').toUpperCase();
+    const modeDisp = resolveMode(s.mode, freqKhz);
+    const callsign = s.activator || '';
+    const ref      = s.reference || '';
+    const park     = s.name || '';
+    const id       = s.spotId;
+    const spotTime = parseSpotTime(s.spotTime);
+    const age      = spotAge(spotTime);
+    const selected = (id === selectedMarkerId);
+
+    const marker = L.marker([s.latitude, s.longitude], {
+      icon: makeMarkerIcon(age.cls, selected),
+      title: callsign + ' – ' + ref,
+    });
+
+    // Popup content — callsign and ref are clickable links matching the table
+    const popupHtml = `
+      <div class="map-popup-call">
+        <a class="spot-link" href="https://pota.app/#/profile/${esc(callsign)}"
+           target="_blank" title="POTA profile: ${esc(callsign)}">${esc(callsign)}</a>
+      </div>
+      <div class="map-popup-freq">${esc(freqKhz)} kHz &nbsp; ${esc(modeDisp)}</div>
+      <div class="map-popup-ref">
+        <a class="spot-link" href="https://pota.app/#/park/${esc(ref)}"
+           target="_blank" title="POTA park: ${esc(ref)}">${esc(ref)}</a>
+      </div>
+      <div class="map-popup-park" title="${esc(park)}">${esc(park.length > 30 ? park.slice(0,28)+'…' : park)}</div>`;
+
+    marker.bindPopup(popupHtml, { maxWidth: 240, autoPan: false });
+
+    // Hover: open popup without tuning
+    marker.on('mouseover', () => {
+      marker.openPopup();
+    });
+
+    // Mouse out: close popup only if this marker wasn't clicked/selected
+    marker.on('mouseout', () => {
+      if (selectedMarkerId !== id) {
+        marker.closePopup();
+      }
+    });
+
+    marker.on('click', () => {
+      selectedMarkerId = id;
+      highlightTableRow(id);
+      // Tune the radio — same behaviour as clicking a table row
+      const fakeEvt = { stopPropagation: () => {} };
+      tuneSpot(fakeEvt, id, freqKhz, modeRaw, callsign, ref, park);
+      // Redraw markers so selection highlight updates
+      updateMap(lastRenderedSpots);
+      // Re-open popup on the new marker after redraw
+      const newMarker = markerIndex[id];
+      if (newMarker) newMarker.openPopup();
+    });
+
+    marker.addTo(markersLayer);
+    markerIndex[id] = marker;
+  });
+
+  // Update the map toolbar count
+  const countEl = document.getElementById('map-spot-count');
+  if (countEl) {
+    const n = Object.keys(markerIndex).length;
+    countEl.textContent = n + ' park' + (n !== 1 ? 's' : '') + ' on map';
+  }
+}
+
+// Scroll the matching table row into view and briefly flash it.
+function highlightTableRow(spotId) {
+  const tbody = document.getElementById('spot-tbody');
+  // Remove any previous highlight
+  tbody.querySelectorAll('tr.map-selected').forEach(r => r.classList.remove('map-selected'));
+  const row = tbody.querySelector(`tr[data-id="${spotId}"]`);
+  if (row) {
+    row.classList.add('map-selected');
+    row.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+}
+
+// Pan/zoom the map to a specific spot (called when a table row is clicked).
+function mapPanToSpot(spotId) {
+  if (!leafletMap) return;
+  const spot = lastRenderedSpots.find(s => s.spotId === spotId);
+  if (!spot || spot.latitude == null) return;
+
+  selectedMarkerId = spotId;
+  leafletMap.setView([spot.latitude, spot.longitude], Math.max(leafletMap.getZoom(), 5), {
+    animate: true,
+  });
+
+  updateMap(lastRenderedSpots);
+
+  // Open popup after the map redraws
+  requestAnimationFrame(() => {
+    const marker = markerIndex[spotId];
+    if (marker) marker.openPopup();
+  });
+}
+
+// ── Resizable split pane ─────────────────────────────────
+//
+// The split area (table + map) fills all remaining vertical space.
+// Heights are tracked as a percentage split: tableRatio is the
+// fraction of split-area height given to the table (0.25–0.75).
+// The map always gets the remainder.  Both panes have a 25% min.
+//
+// When the map is hidden the table simply gets 100% of the area.
+
+const SPLIT_MIN = 0.25;   // neither pane may be smaller than 25%
+let tableRatio  = 0.75;   // default: table 75%, map 25%
+let mapIsOpen   = false;
+
+function applySplit() {
+  const splitArea   = document.getElementById('split-area');
+  const tableWrap   = document.getElementById('table-wrap');
+  const mapPanel    = document.getElementById('map-panel');
+  const divider     = document.getElementById('split-divider');
+  const totalH      = splitArea.clientHeight;
+
+  if (!mapIsOpen) {
+    tableWrap.style.height = totalH + 'px';
+    mapPanel.style.height  = '0';
+    divider.classList.remove('visible');
+    return;
+  }
+
+  divider.classList.add('visible');
+  const divH    = divider.offsetHeight;
+  const usable  = totalH - divH;
+  const tableH  = Math.round(usable * tableRatio);
+  const mapH    = usable - tableH;
+
+  tableWrap.style.height = tableH + 'px';
+  mapPanel.style.height  = mapH  + 'px';
+
+  if (leafletMap) leafletMap.invalidateSize();
+}
+
+// Reapply split whenever window resizes
+window.addEventListener('resize', applySplit);
+
+// ── Drag logic ───────────────────────────────────────────
+(function() {
+  const divider = document.getElementById('split-divider');
+  let dragging  = false;
+  let startY    = 0;
+  let startRatio = 0;
+
+  divider.addEventListener('mousedown', e => {
+    dragging   = true;
+    startY     = e.clientY;
+    startRatio = tableRatio;
+    divider.classList.add('dragging');
+    document.body.style.cursor        = 'ns-resize';
+    document.body.style.userSelect    = 'none';
+    document.body.style.pointerEvents = 'none';
+    divider.style.pointerEvents       = 'auto';
+    e.preventDefault();
+  });
+
+  document.addEventListener('mousemove', e => {
+    if (!dragging) return;
+    const splitArea = document.getElementById('split-area');
+    const totalH    = splitArea.clientHeight - document.getElementById('split-divider').offsetHeight;
+    const delta     = e.clientY - startY;
+    let newRatio    = startRatio + delta / totalH;
+    newRatio        = Math.max(SPLIT_MIN, Math.min(1 - SPLIT_MIN, newRatio));
+    tableRatio      = newRatio;
+    applySplit();
+  });
+
+  document.addEventListener('mouseup', () => {
+    if (!dragging) return;
+    dragging = false;
+    divider.classList.remove('dragging');
+    document.body.style.cursor        = '';
+    document.body.style.userSelect    = '';
+    document.body.style.pointerEvents = '';
+    divider.style.pointerEvents       = '';
+  });
+})();
+
+// ── Open / close map ─────────────────────────────────────
+function closeMap() {
+  mapIsOpen = false;
+  document.getElementById('map-panel').classList.remove('open');
+  document.getElementById('btn-map').classList.remove('active');
+  applySplit();
+}
+
+function openMap() {
+  mapIsOpen = true;
+  document.getElementById('map-panel').classList.add('open');
+  document.getElementById('btn-map').classList.add('active');
+
+  if (!leafletMap) initMap();
+
+  applySplit();
+
+  // Belt-and-suspenders: fire invalidateSize a few times after paint
+  [100, 300, 600].forEach(ms => setTimeout(() => {
+    if (leafletMap) leafletMap.invalidateSize();
+  }, ms));
+
+  setTimeout(() => updateMap(lastRenderedSpots), 150);
+}
+
+document.getElementById('btn-map').addEventListener('click', () => {
+  if (mapIsOpen) closeMap(); else openMap();
+});
+
+document.getElementById('map-close').addEventListener('click', closeMap);
+
+// CSS for the map-selected row highlight
+(function() {
+  const s = document.createElement('style');
+  s.textContent = `
+    tr.map-selected td {
+      background: #0a1a2a !important;
+      outline: 1px solid #7ab4ff;
+      outline-offset: -1px;
+    }
+  `;
+  document.head.appendChild(s);
+})();
+
+
 document.getElementById('band-select').addEventListener('change', render);
 document.getElementById('mode-select').addEventListener('change', render);
 document.getElementById('sort-select').addEventListener('change', render);
@@ -1378,7 +1868,7 @@ async function startupProxyCheck() {
 
       // Start auto-refresh timer and load initial spot data.
       startAutoRefresh();
-      fetchSpots();
+      fetchSpots().then(() => openMap());
 
     } else {
       // Proxy is up but MacLoggerDX is not running.
@@ -1387,7 +1877,7 @@ async function startupProxyCheck() {
       setStatus('error', 'Proxy running but MacLoggerDX unreachable: ' + (data.error || ''));
       showRigError('mldx', false, data.error);
       startAutoRefresh();
-      fetchSpots();
+      fetchSpots().then(() => openMap());
     }
 
   } catch (err) {
