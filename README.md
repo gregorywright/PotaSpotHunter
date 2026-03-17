@@ -20,7 +20,6 @@ POTA Spot Hunter fetches active [Parks on the Air](https://parksontheair.com) ac
 
 ![Filtering example](docs/screenshots/FilteredWindowExample.png)
 
-
 ---
 
 ## Features
@@ -32,11 +31,40 @@ POTA Spot Hunter fetches active [Parks on the Air](https://parksontheair.com) ac
 - 🔗 **Clickable links** — callsigns and park references link directly to POTA activator and park detail pages
 - 🟢 **Age indicators** — spots are colour-coded by how fresh they are
 - 🔁 **Configurable auto-refresh** — 2, 5, 10, 15, 30, or 60 minutes, or manual only
+- 🗺 **Interactive world map** — all active spots plotted on a resizable map; hover a marker to preview, click to tune
 - 🖥 **Multiple rig control backends:**
   - **MacLoggerDX** — full integration via AppleScript (frequency, mode, callsign lookup, park reference note)
   - **flrig** — frequency and mode via XML-RPC
   - **rigctld (Hamlib)** — frequency and mode via TCP
   - **None** — browse spots without sending any commands
+
+---
+
+## Quick Start
+
+### 1. Download and unzip
+
+Download the latest release ZIP from the [Releases page](https://github.com/gregorywright/PotaSpotHunter/releases/latest) and unzip it. You'll get three files:
+
+- `PotaSpotHunter.html` — the web app
+- `PotaProxy.py` — the local proxy server
+- `README.md` — full documentation
+
+Keep all three files in the same folder.
+
+### 2. Start the proxy
+
+Open a terminal in the unzipped folder and run:
+
+```bash
+python3 PotaProxy.py
+```
+
+The proxy will automatically open `PotaSpotHunter.html` in your default browser. The **Rig Control** dropdown defaults to **None**, so you can browse live spots right away without any radio attached.
+
+### 3. (Optional) Click-to-tune
+
+If you want to use POTA Spot Hunter to tune your rig, start MacLoggerDX, flrig, or rigctld, then select the appropriate backend from the **Rig Control** dropdown. Click any row or map marker to tune.
 
 ---
 
@@ -71,41 +99,12 @@ PotaProxy.py  (localhost:8080)
 |---|---|
 | Python 3.6+ | Standard on macOS 12+. Install via [Homebrew](https://brew.sh): `brew install python` |
 | A modern browser | Safari, Chrome, Firefox, or Edge |
-| **One** of the following: | |
-| [MacLoggerDX](https://dogparksoftware.com/MacLoggerDX.html) | macOS only. Must be running before you click Tune. |
+| **One** of the following *(optional — only needed for click-to-tune)*: | |
+| [MacLoggerDX](https://dogparksoftware.com/MacLoggerDX.html) | macOS only. |
 | [flrig](http://www.w1hkj.com/files/flrig/) | macOS, Linux, Windows. |
 | [rigctld](https://hamlib.github.io) (Hamlib) | macOS, Linux, Windows. `brew install hamlib` on macOS. |
 
 No third-party Python packages are required — only the standard library.
-
----
-
-## Quick Start
-
-### 1. Download the files
-
-Clone the repository or download both files into the same folder:
-
-```bash
-git clone https://github.com/gregorywright/PotaSpotHunter.git
-cd PotaSpotHunter
-```
-
-### 2. Start your rig-control software
-
-Make sure MacLoggerDX, flrig, or rigctld is running and connected to your radio **before** starting the proxy.
-
-### 3. Start the proxy
-
-```bash
-python3 PotaProxy.py
-```
-
-The proxy will automatically open `PotaSpotHunter.html` in your default browser. Both files must be in the same directory.
-
-### 4. Select a backend and start hunting
-
-Choose your rig-control backend from the **Rig Control** dropdown. The app will confirm the connection, then load live spots. Click any row or the **Tune** button to tune your radio.
 
 ---
 
@@ -287,6 +286,6 @@ Copyright (c) 2025 Gregory Wright (W7GFW) &lt;greg@gregorywright.org&gt;
 
 ## 73
 
-See you on the air. I am usually doing CW at parks near Seattle, and the random contest. 
+See you on the air. I am usually doing CW at parks near Seattle, and the random contest.
 
 *de W7GFW*
