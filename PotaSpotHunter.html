@@ -944,7 +944,7 @@ const BANDS = {
 
 // ── State ────────────────────────────────────────────────
 let allSpots  = [];
-let tunedIds  = new Set();   // spotIds the operator has tuned to
+let tunedIds  = new Set();   // composite keys for spots the operator has tuned to
 let sortCol   = 'time';
 let sortDir   = 'desc';      // 'asc' | 'desc'
 let lastFetch = null;
@@ -1006,6 +1006,31 @@ function bandOf(freqKhz) {
     if (f >= lo && f <= hi) return name;
   }
   return null;
+}
+
+// ── Composite key for tuned-spot tracking ───────────────
+//
+// We identify a "same spot" by callsign + band + normalised mode + park ref
+// + UTC date.  Frequency is intentionally excluded: an activator can move a
+// few kHz within a band and it's still the same scoring opportunity.
+// USB and LSB are both collapsed to SSB because POTA counts them as the same
+// mode for duplicate-QSO purposes (the official uniqueness key uses <BAND>
+// and <MODE>, and SSB logged as USB vs LSB on the same band is the same QSO).
+// UTC date is included because an activator could operate across a UTC
+// midnight and legitimately re-appear as a new scoring opportunity.
+//
+// Source for POTA duplicate-QSO key:
+//   https://docs.pota.app/docs/rules.html  (Logging Requirements section)
+//   Uniqueness = STATION_CALLSIGN + CALL + MODE + QSO_DATE + BAND +
+//                MY_SIG_INFO + SIG_INFO
+function spotKey(callsign, freqKhz, modeRaw, reference, spotTime) {
+  const band = bandOf(freqKhz) || 'unknown';
+  // Normalise mode: collapse USB/LSB -> SSB
+  let mode = (modeRaw || '').toUpperCase();
+  if (mode === 'USB' || mode === 'LSB') mode = 'SSB';
+  // UTC date string "YYYY-MM-DD"
+  const utcDate = spotTime.toISOString().slice(0, 10);
+  return `${callsign}|${band}|${mode}|${reference}|${utcDate}`;
 }
 
 // ── Fetch spots from POTA API ────────────────────────────
@@ -1130,7 +1155,10 @@ function render() {
     const spotTime = parseSpotTime(s.spotTime);
     const age      = spotAge(spotTime);
     const id       = s.spotId;
-    const tuned    = tunedIds.has(id);
+    // Use composite key to recognise re-spotted activations after a refresh.
+    // spotId changes each time a spot is re-posted; callsign+band+mode+ref+date
+    // correctly identifies the same scoring opportunity across refreshes.
+    const tuned    = tunedIds.has(spotKey(callsign, freqKhz, modeRaw, ref, spotTime));
     const freshCls = age.cls === 'fresh' ? ' fresh-pulse' : '';
 
     return `<tr data-id="${id}" data-freq="${esc(freqKhz)}" data-mode="${esc(modeRaw)}"
@@ -1433,8 +1461,20 @@ function tuneSpot(evt, id, freqKhz, modeRaw, callsign, ref, park) {
       modeDisp + '  ' + callsign + '  ' + ref);
   }
 
-  // Mark row as tuned regardless of backend (visual feedback)
-  tunedIds.add(id);
+  // Mark row as tuned regardless of backend (visual feedback).
+  // Use the composite key (callsign + band + mode + ref + UTC date) so that
+  // re-spots of the same activation — which get a new spotId from the API —
+  // are still recognised as already-tuned after a refresh.
+  const spot = allSpots.find(s => s.spotId === id);
+  if (spot) {
+    tunedIds.add(spotKey(
+      callsign,
+      freqKhz,
+      modeRaw,
+      ref,
+      parseSpotTime(spot.spotTime)
+    ));
+  }
   render();
 }
 
@@ -1837,8 +1877,6 @@ function updateRefreshLabel() {
     : '  |  Auto-refresh: off';
   el.textContent = fetchStr + intervalStr;
 }
-
-document.getElementById('refresh-interval').addEventListener('change', startAutoRefresh);
 
 // ── Startup: require proxy to be running ─────────────────
 //
