@@ -168,6 +168,15 @@
     flex-shrink: 0;
   }
 
+  /* Right-justified actions in the header row */
+  #header-actions {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+  }
+
   .logo {
     font-family: var(--mono);
     font-size: 22px;
@@ -203,6 +212,16 @@
     flex-shrink: 0;
     flex-wrap: wrap;
     border-bottom: 1px solid var(--border);
+  }
+
+  /* Each label+control pair is wrapped in .ctrl-group so they always
+     wrap as a single unit — the label never gets stranded on its own line. */
+  .ctrl-group {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
+    flex-shrink: 0;
   }
 
   .ctrl-label {
@@ -250,13 +269,57 @@
   #btn-refresh {
     border-color: var(--green-dim);
     color: var(--green);
-    font-size: 18px;
-    padding: 2px 10px;
+    padding: 3px 7px;
     line-height: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
   }
+  #btn-refresh svg { display: block; }
   #btn-refresh:hover { background: var(--green-faint); border-color: var(--green); }
   #btn-refresh:active { background: #0a2010; }
-  #btn-refresh.spinning { opacity: 0.5; cursor: default; }
+  #btn-refresh.spinning svg { animation: spin 0.8s linear infinite; opacity: 0.5; }
+  #btn-refresh.spinning { cursor: default; }
+
+  /* ── Auto-scan pill control ───────────────────────────── */
+  #auto-scan-pills {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    overflow: hidden;
+  }
+  .scan-pill {
+    font-family: var(--ui);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    padding: 4px 8px;
+    background: var(--surface2);
+    color: var(--text-dim);
+    border: none;
+    border-right: 1px solid var(--border);
+    border-radius: 0;
+    cursor: pointer;
+    text-transform: uppercase;
+    transition: background 0.12s, color 0.12s;
+    white-space: nowrap;
+  }
+  .scan-pill:last-child { border-right: none; }
+  .scan-pill:hover { background: var(--surface); color: var(--text); }
+  .scan-pill.active {
+    background: #0a2818;
+    color: var(--green);
+    border-right-color: var(--green-dim);
+    box-shadow: inset 0 0 0 1px var(--green-dim);
+  }
+  .scan-pill.active:hover { background: var(--green-faint); }
+  /* OFF pill when scanning — subtle red hint so it's obvious to click */
+  .scan-pill[data-dwell="0"].scanning-active {
+    color: var(--red);
+    border-right-color: #7a1010;
+  }
 
   #btn-clear {
     border-color: var(--amber-dim);
@@ -607,19 +670,6 @@
   }
   #rig-error-close:hover { background: #3a1010; }
 
-  /* ── Rig control status indicator ────────────────────── */
-  #rig-status {
-    font-family: var(--mono);
-    font-size: 11px;
-    padding: 3px 8px;
-    border-radius: 2px;
-    border: 1px solid transparent;
-    white-space: nowrap;
-  }
-  #rig-status.ok      { color: var(--green);    border-color: var(--green-dim);  background: var(--green-faint); }
-  #rig-status.error   { color: var(--red);      border-color: #7a1010;           background: #1a0505; }
-  #rig-status.waiting { color: var(--amber);    border-color: var(--amber-dim);  background: #1a1000; }
-  #rig-status.hidden  { display: none; }
 
   /* ── Tooltip for park name overflow ──────────────────── */
   td.park { position: relative; }
@@ -769,6 +819,20 @@
   .marker-selected {
     filter: drop-shadow(0 0 6px rgba(57,255,106,0.9));
   }
+
+  /* ── Auto-scan active row highlight ──────────────────── */
+  /* An inset amber left-edge bar that pulses in opacity.
+     Uses box-shadow so it draws inside existing cell padding —
+     zero layout impact, no column shifting, works on both plain
+     and tuned (solid green) rows without disturbing the background. */
+  @keyframes scan-bar-pulse {
+    0%   { box-shadow: inset 3px 0 0 0 rgba(255,184,48,0.9); }
+    50%  { box-shadow: inset 3px 0 0 0 rgba(255,184,48,0.25); }
+    100% { box-shadow: inset 3px 0 0 0 rgba(255,184,48,0.9); }
+  }
+  tr.scanning td:first-child {
+    animation: scan-bar-pulse 1.4s ease-in-out infinite;
+  }
 </style>
 </head>
 <body>
@@ -778,68 +842,96 @@
   <header>
     <div class="logo">POTA <span>&#9658;</span> SPOT HUNTER</div>
     <div id="status-line">Initialising...</div>
+    <div id="header-actions">
+      <button id="btn-clear">&#10005; Clear Tuned</button>
+      <button id="btn-map" title="Toggle world map">&#9783; Map</button>
+    </div>
   </header>
 
   <!-- Controls -->
   <div id="controls">
-    <span class="ctrl-label">Band</span>
-    <select id="band-select">
-      <option value="ALL">All Bands</option>
-      <option value="160">160m  (1.8–2.0 MHz)</option>
-      <option value="80"> 80m  (3.5–4.0 MHz)</option>
-      <option value="60"> 60m  (5.33–5.41 MHz)</option>
-      <option value="40"> 40m  (7.0–7.3 MHz)</option>
-      <option value="30"> 30m  (10.1–10.15 MHz)</option>
-      <option value="20"> 20m  (14.0–14.35 MHz)</option>
-      <option value="17"> 17m  (18.07–18.17 MHz)</option>
-      <option value="15"> 15m  (21.0–21.45 MHz)</option>
-      <option value="12"> 12m  (24.89–24.99 MHz)</option>
-      <option value="10"> 10m  (28.0–29.7 MHz)</option>
-      <option value="6">   6m  (50–54 MHz)</option>
-      <option value="2">   2m  (144–148 MHz)</option>
-    </select>
+    <span class="ctrl-group">
+      <span class="ctrl-label">Band</span>
+      <select id="band-select">
+        <option value="ALL">All</option>
+        <option value="160">160m</option>
+        <option value="80">80m</option>
+        <option value="60">60m</option>
+        <option value="40">40m</option>
+        <option value="30">30m</option>
+        <option value="20">20m</option>
+        <option value="17">17m</option>
+        <option value="15">15m</option>
+        <option value="12">12m</option>
+        <option value="10">10m</option>
+        <option value="6">6m</option>
+        <option value="2">2m</option>
+      </select>
+    </span>
 
-    <span class="ctrl-label">Mode</span>
-    <select id="mode-select">
-      <option value="ALL">All Modes</option>
-      <option value="CW">CW</option>
-      <option value="SSB">SSB</option>
-      <option value="FT8">FT8</option>
-      <option value="FT4">FT4</option>
-      <option value="DIGITAL">Digital (other)</option>
-    </select>
+    <span class="ctrl-group">
+      <span class="ctrl-label">Mode</span>
+      <select id="mode-select">
+        <option value="ALL">All</option>
+        <option value="CW">CW</option>
+        <option value="SSB">SSB</option>
+        <option value="FT8">FT8</option>
+        <option value="FT4">FT4</option>
+        <option value="DIGITAL">Other</option>
+      </select>
+    </span>
 
-    <span class="ctrl-label">Sort</span>
-    <select id="sort-select">
-      <option value="time_desc">Newest first</option>
-      <option value="time_asc">Oldest first</option>
-      <option value="freq_asc">Freq ↑</option>
-      <option value="freq_desc">Freq ↓</option>
-      <option value="call_asc">Callsign A–Z</option>
-    </select>
+    <span class="ctrl-group">
+      <span class="ctrl-label">Sort</span>
+      <select id="sort-select">
+        <option value="time_desc">Newest first</option>
+        <option value="time_asc">Oldest first</option>
+        <option value="freq_asc">Freq ↑</option>
+        <option value="freq_desc">Freq ↓</option>
+        <option value="call_asc">Callsign A–Z</option>
+      </select>
+    </span>
 
-    <span class="ctrl-label">Rig Control</span>
-    <select id="rig-select">
-      <option value="mldx">MacLoggerDX</option>
-      <option value="flrig">flrig (proxy)</option>
-      <option value="rigctld">rigctld (proxy)</option>
-      <option value="none" selected>None (display only)</option>
-    </select>
-    <span id="rig-status" title="Proxy connection status"></span>
+    <span class="ctrl-group">
+      <span class="ctrl-label">Rig</span>
+      <select id="rig-select">
+        <option value="mldx">MacLoggerDX</option>
+        <option value="flrig">flrig</option>
+        <option value="rigctld">rigctld</option>
+        <option value="none" selected>None</option>
+      </select>
+    </span>
 
-    <span class="ctrl-label">Auto-refresh</span>
-    <select id="refresh-interval">
-      <option value="2">Every 2 min</option>
-      <option value="5">Every 5 min</option>
-      <option value="10">Every 10 min</option>
-      <option value="15">Every 15 min</option>
-      <option value="30">Every 30 min</option>
-      <option value="60">Every 60 min</option>
-      <option value="0">Manual only</option>
-    </select>
-    <button id="btn-refresh" title="Fetch fresh spots from api.pota.app now">&#8635;</button>
-    <button id="btn-clear">&#10005; Clear Tuned</button>
-    <button id="btn-map" title="Toggle world map">&#9783; Map</button>
+    <span class="ctrl-group">
+      <span class="ctrl-label">Refresh</span>
+      <select id="refresh-interval">
+        <option value="2">2 min</option>
+        <option value="5">5 min</option>
+        <option value="10">10 min</option>
+        <option value="15">15 min</option>
+        <option value="30">30 min</option>
+        <option value="60">60 min</option>
+        <option value="0">Manual</option>
+      </select>
+      <button id="btn-refresh" title="Fetch fresh spots from api.pota.app now">
+        <svg id="refresh-icon" width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M13.5 8A5.5 5.5 0 1 1 8 2.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+          <path d="M8 0.5L10.5 3.5L7.5 3.5Z" fill="currentColor"/>
+        </svg>
+      </button>
+    </span>
+
+
+    <span class="ctrl-group">
+      <span class="ctrl-label">Auto Scan</span>
+      <div id="auto-scan-pills" title="Auto-tune dwell time per spot. Any click or keypress stops scanning.">
+        <button class="scan-pill active" data-dwell="0">Off</button>
+        <button class="scan-pill" data-dwell="5">5s</button>
+        <button class="scan-pill" data-dwell="10">10s</button>
+        <button class="scan-pill" data-dwell="30">30s</button>
+        <button class="scan-pill" data-dwell="60">1m</button>
+      </div>
+    </span>
 
     <span class="spot-count" id="spot-count"></span>
   </div>
@@ -907,23 +999,40 @@
 //   mldx://lookup?call=CALLSIGN
 //   Documented at: https://dogparksoftware.com/MacLoggerDX%20Help/mldxfc_script.html
 // US band plan:   https://www.arrl.org/frequency-allocations
+// POTA rules (QSO uniqueness key): https://docs.pota.app/docs/rules.html
 //
 // ARCHITECTURE
 // ------------
-// allSpots   — raw array of spot objects from the API (QRT filtered out)
-// rendered   — the currently visible (filtered + sorted) subset
+// allSpots        — raw array of spot objects from the API (QRT filtered out)
+// lastRenderedSpots — the currently visible (filtered + sorted) subset,
+//                   kept in sync by render() and used directly by auto-scan
+// tunedIds        — Set of composite keys (callsign|band|mode|ref|date) for
+//                   spots the operator has manually tuned to.  Survives spot
+//                   list refreshes because it keys on content, not spotId.
+// autoScan*       — state for the band-scanner feature (see auto-scan section)
+//
 // Filters and sort are applied in-place on every change; no page reload.
 //
 // SSB -> USB/LSB resolution:
 //   < 10 MHz  -> LSB   (standard amateur band-plan convention)
 //   >= 10 MHz -> USB
 //
-// mldx:// URL scheme notes:
-//   freq parameter expects MHz (e.g. "14.074"), not kHz.
-//   Two separate window.location calls are used: one to tune,
-//   one to lookup.  A small delay is inserted between them so
-//   MacLoggerDX has time to process the first command before
-//   the second arrives.
+// RIG CONTROL
+// -----------
+// All rig commands go through pota_proxy.py (localhost:8080).
+// The proxy handles AppleScript (MacLoggerDX), XML-RPC (flrig),
+// and TCP (rigctld).  If the proxy is not running on startup,
+// the UI is blocked with an overlay until it becomes reachable.
+// mldx also has a URL-scheme fallback (freq+mode+lookup only,
+// no setNOTE) if the proxy is unreachable at tune time.
+//
+// AUTO-SCAN (band scanner)
+// ------------------------
+// Cycles through the visible spot list, dwelling on each spot for a
+// configurable number of seconds (5/10/30/60).  Calls tuneSpot() as if
+// the user clicked but does NOT mark spots as tuned.  Any mouse click or
+// keypress outside the pill control stops the scan.  See the auto-scan
+// section below for the full state machine.
 // ============================================================
 
 // ── Band table (kHz ranges) ──────────────────────────────
@@ -945,9 +1054,9 @@ const BANDS = {
 // ── State ────────────────────────────────────────────────
 let allSpots  = [];
 let tunedIds  = new Set();   // composite keys for spots the operator has tuned to
-let sortCol   = 'time';
-let sortDir   = 'desc';      // 'asc' | 'desc'
-let lastFetch = null;
+                             // key format: "callsign|band|mode|ref|utcDate"
+                             // see spotKey() for details
+let lastFetch = null;        // Date of the most recent successful API fetch
 
 // ── Utility functions ────────────────────────────────────
 
@@ -1289,31 +1398,21 @@ function hideConnecting() {
   if (el) el.remove();
 }
 
-// Ping the proxy and update the rig status indicator.
-// Shows a blocking "Connecting…" overlay while the ping is in flight.
-// Shows a detailed error dialog on any failure.
-// On failure, always resets the dropdown to "None (display only)" rather
-// than restoring the previous value — this makes it unambiguous that no
-// rig control is active when a backend can't be reached.
+// Ping the proxy and show an error dialog on any failure.
+// On failure, resets the dropdown to "None" so no rig control
+// appears active when the backend can't be reached.
 // Called whenever the rig-select dropdown changes.
-async function pingRigBackend(backend, previousValue) {
-  const el  = document.getElementById('rig-status');
+async function pingRigBackend(backend) {
   const sel = document.getElementById('rig-select');
 
-  // mldx and none don't use the proxy — hide the indicator, no ping needed
-  if (backend === 'mldx' || backend === 'none') {
-    el.className = 'hidden';
-    el.textContent = '';
-    return;
-  }
+  // mldx and none don't use the proxy — nothing to ping
+  if (backend === 'mldx' || backend === 'none') return;
 
   const backendLabel = { flrig: 'flrig', rigctld: 'rigctld' }[backend] || backend;
 
   // Block the UI while we wait — rigctld can take several seconds to
   // respond if the rig software is not running (TCP timeout).
   showConnecting(backendLabel);
-  el.className = 'waiting';
-  el.textContent = '⟳ checking…';
 
   try {
     // Timeout is 8s: the proxy's rigctld socket timeout is 3s, so this
@@ -1323,28 +1422,17 @@ async function pingRigBackend(backend, previousValue) {
     const res  = await fetch(`${PROXY_BASE}/ping/${backend}`,
                              { signal: AbortSignal.timeout(8000) });
     const data = await res.json();
-
     hideConnecting();
 
-    if (data.ok) {
-      // Backend is reachable — show version in the indicator
-      el.className = 'ok';
-      el.textContent = '● ' + backend + (data.version ? '  v' + data.version : '');
-    } else {
-      // Proxy is up but can't reach the rig software.
-      // Reset to None so the user can't accidentally think a backend
-      // is active when it isn't.
-      el.className = 'error';
-      el.textContent = '✖ ' + backend + ' unreachable';
+    if (!data.ok) {
+      // Proxy is up but can't reach the rig software — reset to None
+      // and show the error dialog.
       sel.value = 'none';
       showRigError(backend, false, data.error);
     }
   } catch (err) {
     hideConnecting();
     // fetch() threw — proxy is not running or the request timed out.
-    // Reset to None for the same reason as above.
-    el.className = 'error';
-    el.textContent = '✖ proxy not running';
     sel.value = 'none';
     showRigError(backend, true, null);
   }
@@ -1434,22 +1522,14 @@ function tuneSpot(evt, id, freqKhz, modeRaw, callsign, ref, park) {
           setStatus('ok',
             'Tuned via ' + rig + ': ' + freqKhz + ' kHz  ' + modeDisp +
             '  ' + callsign + '  —  Park ref: ' + ref);
-          const el = document.getElementById('rig-status');
-          el.className = 'ok';
         } else {
           setStatus('error', rig + ' error: ' + (data.error || 'unknown error'));
-          const el = document.getElementById('rig-status');
-          el.className = 'error';
-          el.textContent = '✖ ' + (data.error || 'error');
         }
       })
       .catch(err => {
         setStatus('error',
           'Cannot reach proxy at ' + PROXY_BASE +
           ' — is pota_proxy.py running?  (' + err.message + ')');
-        const el = document.getElementById('rig-status');
-        el.className = 'error';
-        el.textContent = '✖ proxy not running';
       });
 
     setStatus('waiting', 'Sending to ' + rig + '…');
@@ -1877,6 +1957,168 @@ function updateRefreshLabel() {
     : '  |  Auto-refresh: off';
   el.textContent = fetchStr + intervalStr;
 }
+
+// ── Auto-scan ────────────────────────────────────────────
+//
+// The pill control lets the operator automatically cycle through every
+// visible (filtered+sorted) spot, dwelling on each for a configurable
+// number of seconds.  This is the "band scanner" feature: let the app
+// step through spots while you listen for a station you can actually hear.
+//
+// State machine
+// -------------
+//   OFF  →  user clicks a dwell pill          → start scanning at that dwell
+//   ON   →  user clicks a different dwell pill → keep scanning, new dwell
+//   ON   →  user clicks the ACTIVE dwell pill  → stop (toggle off)
+//   ON   →  user clicks OFF pill               → stop
+//   ON   →  any other click or keypress        → stop
+//
+// Auto-tune vs manual tune
+// ------------------------
+// During auto-scan, tuneSpot() is called exactly as if the user clicked
+// a row, EXCEPT we do NOT add the spot to tunedIds — auto-scan should not
+// permanently mark spots as "worked", only the user's deliberate click does.
+//
+// Spot list refresh during scan
+// ------------------------------
+// If the spot list refreshes while scanning, we just continue from the
+// next index in the new list.  If the index is past the end of the new
+// list we wrap back to 0.
+
+let autoScanTimer   = null;   // setInterval handle
+let autoScanIndex   = 0;      // index into the currently rendered spot list
+let autoScanDwell   = 0;      // active dwell in seconds (0 = off)
+
+// The rendered spot list is already tracked as lastRenderedSpots.
+// We use that directly so auto-scan always works on whatever is visible
+// after filters, including after a spot-list refresh.
+
+function autoScanStart(dwellSecs) {
+  autoScanStop(false);   // clear any existing timer without resetting pills
+
+  autoScanDwell = dwellSecs;
+  autoScanIndex = 0;
+
+  // Scroll the table to the top so the first spot is always visible.
+  // Subsequent steps use scrollIntoView({block:'nearest'}) which keeps
+  // the active row in view as the scan progresses down the list.
+  const tableWrap = document.getElementById('table-wrap');
+  if (tableWrap) tableWrap.scrollTop = 0;
+
+  // Tune the first spot immediately, then start the interval
+  autoScanStep();
+
+  autoScanTimer = setInterval(() => {
+    autoScanIndex++;
+    if (autoScanIndex >= lastRenderedSpots.length) autoScanIndex = 0;
+    autoScanStep();
+  }, dwellSecs * 1000);
+
+  updateScanPills();
+}
+
+function autoScanStep() {
+  if (!lastRenderedSpots.length) return;
+  if (autoScanIndex >= lastRenderedSpots.length) autoScanIndex = 0;
+
+  const s        = lastRenderedSpots[autoScanIndex];
+  const freqKhz  = s.frequency || '';
+  const modeRaw  = (s.mode || '').toUpperCase();
+  const callsign = s.activator || '';
+  const ref      = s.reference || '';
+  const park     = s.name || '';
+
+  // Tune without marking as worked — pass a synthetic event and then
+  // immediately remove the key that tuneSpot() would have added.
+  const keyBefore = new Set(tunedIds);
+  const fakeEvt   = { stopPropagation: () => {} };
+  tuneSpot(fakeEvt, s.spotId, freqKhz, modeRaw, callsign, ref, park);
+  // Restore tunedIds to what it was before — auto-scan doesn't mark spots
+  tunedIds.clear();
+  keyBefore.forEach(k => tunedIds.add(k));
+  render();
+
+  // Apply the pulsing scan highlight to the active row.
+  // Clear any previous scanning row first, then mark the new one.
+  document.querySelectorAll('tr.scanning').forEach(r => r.classList.remove('scanning'));
+  const activeRow = document.querySelector(`#spot-tbody tr[data-id="${s.spotId}"]`);
+  if (activeRow) {
+    activeRow.classList.add('scanning');
+    // Keep the active row visible as the scan moves down the list.
+    // 'nearest' means: scroll only if the row is outside the viewport,
+    // and prefer the minimum scroll distance.  The table was already
+    // scrolled to the top in autoScanStart so this just tracks progress.
+    activeRow.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+
+  // Also pan map to this spot if the map is open
+  mapPanToSpot(s.spotId);
+}
+
+// stop: if resetPills is true (default), reset pill UI to OFF.
+// Pass false when changing dwell mid-scan so we update pills separately.
+function autoScanStop(resetPills = true) {
+  if (autoScanTimer) {
+    clearInterval(autoScanTimer);
+    autoScanTimer = null;
+  }
+  autoScanDwell = 0;
+  // Remove the pulsing highlight from whichever row was active
+  document.querySelectorAll('tr.scanning').forEach(r => r.classList.remove('scanning'));
+  if (resetPills) updateScanPills();
+}
+
+function updateScanPills() {
+  document.querySelectorAll('.scan-pill').forEach(btn => {
+    const d = parseInt(btn.dataset.dwell, 10);
+    btn.classList.toggle('active', d === autoScanDwell);
+    // Mark OFF pill with scanning-active class when a scan IS running
+    // so we can give it a red tint as a "click to stop" hint
+    if (d === 0) {
+      btn.classList.toggle('scanning-active', autoScanDwell !== 0);
+    }
+  });
+}
+
+// Pill click handler
+document.getElementById('auto-scan-pills').addEventListener('click', e => {
+  const pill = e.target.closest('.scan-pill');
+  if (!pill) return;
+
+  // This is a deliberate pill interaction — don't let the global
+  // "any click stops scan" listener fire for this same event.
+  e.stopPropagation();
+
+  const dwell = parseInt(pill.dataset.dwell, 10);
+
+  if (dwell === 0) {
+    // OFF pill — always stop
+    autoScanStop();
+    return;
+  }
+
+  if (dwell === autoScanDwell) {
+    // Clicking the active pill toggles it off
+    autoScanStop();
+    return;
+  }
+
+  // Clicking a different dwell pill — start or change dwell
+  autoScanStart(dwell);
+});
+
+// Any click or keypress outside the pill control stops the scan
+document.addEventListener('click', e => {
+  if (!autoScanTimer) return;
+  // Ignore clicks that originated inside the pill control (handled above)
+  if (e.target.closest('#auto-scan-pills')) return;
+  autoScanStop();
+}, true);   // capture phase so we catch everything
+
+document.addEventListener('keydown', e => {
+  if (!autoScanTimer) return;
+  autoScanStop();
+}, true);
 
 // ── Startup: require proxy to be running ─────────────────
 //
