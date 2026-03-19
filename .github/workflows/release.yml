@@ -1,0 +1,138 @@
+# .github/workflows/release.yml
+#
+# POTA Spot Hunter — Release workflow
+#
+# TRIGGER
+# -------
+# Push a version tag to kick this off:
+#
+#   git tag v1.2.0
+#   git push origin v1.2.0
+#
+# The tag must match the version in the VERSION file or the workflow
+# will fail with a clear error message.  This prevents accidentally
+# releasing mismatched code.
+#
+# WHAT IT DOES
+# ------------
+# 1. Reads the version from VERSION
+# 2. Verifies the tag matches the VERSION file
+# 3. Extracts the matching section from CHANGELOG.md for release notes
+# 4. Creates a zip archive of the distributable files
+# 5. Creates a draft GitHub release with the zip attached
+#
+# RESULT
+# ------
+# A draft release appears at:
+#   https://github.com/gregorywright/PotaSpotHunter/releases
+#
+# Review it, then click "Publish release" when you're happy.
+#
+# FILES INCLUDED IN THE RELEASE ZIP
+# -----------------------------------
+# PotaSpotHunter.html   — the web UI
+# PotaProxy.py          — the local proxy server
+# VERSION               — version number
+# README.md             — documentation
+# CHANGELOG.md          — version history
+# LICENSE               — MIT license
+# requirements.txt      — (empty — documents no dependencies)
+
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+
+jobs:
+  release:
+    name: Build and publish draft release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # needed to create releases and upload assets
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ── Read and validate version ──────────────────────────────────────
+      - name: Read VERSION file
+        id: version
+        run: |
+          VERSION=$(cat VERSION | tr -d '[:space:]')
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "Version from file: ${VERSION}"
+
+      - name: Verify tag matches VERSION file
+        run: |
+          TAG="${GITHUB_REF_NAME}"           # e.g. "v1.2.0"
+          FILE_VERSION="v${{ steps.version.outputs.version }}"  # e.g. "v1.2.0"
+          if [ "${TAG}" != "${FILE_VERSION}" ]; then
+            echo "ERROR: Tag '${TAG}' does not match VERSION file ('${FILE_VERSION}')"
+            echo "Update the VERSION file to match the tag before releasing."
+            exit 1
+          fi
+          echo "Tag and VERSION file match: ${TAG}"
+
+      # ── Extract release notes from CHANGELOG.md ───────────────────────
+      - name: Extract release notes from CHANGELOG.md
+        id: release_notes
+        run: |
+          python3 << 'PYEOF'
+          import re, os, sys
+
+          version = os.environ["RELEASE_VERSION"]
+          changelog = open("CHANGELOG.md", encoding="utf-8").read()
+
+          # Find the section for this version.
+          # Sections start with "## [X.Y.Z]" and end at the next "## [" or EOF.
+          pattern = rf'## \[{re.escape(version)}\][^\n]*\n(.*?)(?=\n## \[|\Z)'
+          match = re.search(pattern, changelog, re.DOTALL)
+
+          if not match:
+              print(f"ERROR: No CHANGELOG.md section found for version {version}", file=sys.stderr)
+              sys.exit(1)
+
+          notes = match.group(1).strip()
+          print(f"Extracted {len(notes)} characters of release notes for v{version}")
+
+          # Write to a file so the next step can read it cleanly
+          # (avoids shell quoting issues with multiline strings)
+          with open("release_notes.md", "w", encoding="utf-8") as f:
+              f.write(notes)
+          PYEOF
+        env:
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
+
+      # ── Build the release zip ─────────────────────────────────────────
+      - name: Create release zip
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          ZIP_NAME="PotaSpotHunter-v${VERSION}.zip"
+
+          zip "${ZIP_NAME}" \
+            PotaSpotHunter.html \
+            PotaProxy.py \
+            VERSION \
+            README.md \
+            CHANGELOG.md \
+            LICENSE \
+            requirements.txt
+
+          echo "Created ${ZIP_NAME}"
+          unzip -l "${ZIP_NAME}"
+
+          # Store zip name for later steps
+          echo "zip_name=${ZIP_NAME}" >> $GITHUB_ENV
+
+      # ── Create the draft GitHub release ──────────────────────────────
+      - name: Create draft release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: "POTA Spot Hunter v${{ steps.version.outputs.version }}"
+          body_path: release_notes.md
+          draft: true
+          prerelease: false
+          files: ${{ env.zip_name }}
