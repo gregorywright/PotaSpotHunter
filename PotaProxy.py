@@ -104,6 +104,7 @@ REQUIREMENTS
 import argparse
 import json
 import logging
+import pathlib
 import socket
 import sys
 import xmlrpc.client
@@ -118,6 +119,17 @@ logging.basicConfig(
     datefmt="%H:%M:%S",
 )
 log = logging.getLogger("pota_proxy")
+
+# ── Version ──────────────────────────────────────────────────────────────
+# Read from the VERSION file in the same directory as this script.
+# Falls back to "unknown" if the file is missing so the proxy still starts.
+# The version is exposed via the /version HTTP route so PotaSpotHunter.html
+# can display it in the header without hardcoding it in two places.
+_version_file = pathlib.Path(__file__).parent / "VERSION"
+try:
+    APP_VERSION = _version_file.read_text(encoding="utf-8").strip()
+except OSError:
+    APP_VERSION = "unknown"
 
 
 # ════════════════════════════════════════════════════════════
@@ -713,6 +725,12 @@ class ProxyHandler(BaseHTTPRequestHandler):
         List all registered backends and their current host:port config.
         Returns JSON: {"backends": ["flrig", "rigctld"]}
 
+    GET /version
+        Return the app version string read from the VERSION file.
+        Returns JSON: {"version": "1.2.0"}
+        Used by PotaSpotHunter.html to display the version in the header
+        without hardcoding it in two places.
+
     All responses include CORS headers so the browser does not block them
     when the page is loaded from a file:// URL.
     """
@@ -766,6 +784,14 @@ class ProxyHandler(BaseHTTPRequestHandler):
             self._json_response(200, {
                 "backends": list(self.backends.keys())
             })
+            return
+
+        # ── Route: /version ──────────────────────────────────
+        # Returns the app version from the VERSION file.
+        # Called by PotaSpotHunter.html at startup to display the version
+        # in the page header without duplicating it in the HTML source.
+        if path == "/version":
+            self._json_response(200, {"version": APP_VERSION})
             return
 
         # ── Route: /ping/<backend> ───────────────────────────
@@ -966,12 +992,12 @@ def main():
     # This works whether the script is run from its own directory or
     # from a different working directory (e.g. ~/Scripts/pota_proxy.py
     # will look for ~/Scripts/POTASpotHunter.html).
-    import pathlib
+    # pathlib is imported at the top of this file (needed for VERSION too).
     script_dir = pathlib.Path(__file__).parent.resolve()
     html_path  = script_dir / "POTASpotHunter.html"
 
     log.info("=" * 60)
-    log.info("POTA Spot Hunter proxy  —  listening on 127.0.0.1:%d", args.port)
+    log.info("POTA Spot Hunter v%s  —  listening on 127.0.0.1:%d", APP_VERSION, args.port)
     log.info("Default backend : %s",   args.backend)
     log.info("flrig           : %s:%d", args.rig_host, args.rig_port)
     log.info("rigctld         : %s:%d", args.rig_host, args.rigctld_port)

@@ -36,9 +36,20 @@
   even on already-tuned (solid green) rows.
 - **Scroll-to-top on scan start** — the spot table scrolls to the top when
   auto-scan begins; subsequent steps keep the active row in view automatically.
+- **Version display** — the app version is now shown in the header next to
+  the logo (e.g. "POTA ► SPOT HUNTER  v1.2.0"). The proxy reads the version
+  from the new `VERSION` file at startup and serves it via a `/version`
+  endpoint; the page fetches it on load so the version number is never
+  hardcoded in two places.
+- **`VERSION` file** — single source of truth for the version number, used
+  by the proxy at startup, displayed in the page header, and will be read
+  by the GitHub Actions release workflow when that is added.
 
 ### Changed
 - Refresh button is now an SVG icon (no text label) to save toolbar space
+- `PotaProxy.py` startup log banner now includes the version number
+- `pathlib` import in `PotaProxy.py` moved to top-level (was previously
+  imported inside `main()`; needed at module load time to read `VERSION`)
 - Band dropdown labels shortened: frequency ranges removed (e.g. "20m" not
   "20m (14.0–14.35 MHz)") — operators know their bands
 - Mode dropdown: "Digital (other)" shortened to "Other"; "All Modes" to "All"

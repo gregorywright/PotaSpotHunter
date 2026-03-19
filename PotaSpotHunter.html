@@ -191,6 +191,18 @@
     text-shadow: 0 0 12px rgba(255,184,48,0.5);
   }
 
+  /* Version number displayed after the logo text.
+     Smaller, dimmed — present but unobtrusive. */
+  #version-label {
+    font-size: 11px;
+    color: var(--text-dim);
+    letter-spacing: 0.08em;
+    margin-left: 10px;
+    text-shadow: none;
+    font-family: var(--mono);
+    vertical-align: middle;
+  }
+
   #status-line {
     font-family: var(--mono);
     font-size: 11px;
@@ -840,7 +852,7 @@
 
   <!-- Header -->
   <header>
-    <div class="logo">POTA <span>&#9658;</span> SPOT HUNTER</div>
+    <div class="logo">POTA <span>&#9658;</span> SPOT HUNTER<span id="version-label"></span></div>
     <div id="status-line">Initialising...</div>
     <div id="header-actions">
       <button id="btn-clear">&#10005; Clear Tuned</button>
@@ -2138,9 +2150,22 @@ async function startupProxyCheck() {
   setStatus('loading', 'Connecting to pota_proxy.py…');
 
   try {
-    const res  = await fetch(`${PROXY_BASE}/ping/mldx`,
-                             { signal: AbortSignal.timeout(3000) });
-    const data = await res.json();
+    // Fetch the proxy version and the mldx ping in parallel so startup
+    // is no slower than before. The version endpoint is always available
+    // as long as the proxy is running, regardless of rig backend.
+    const [versionRes, pingRes] = await Promise.all([
+      fetch(`${PROXY_BASE}/version`, { signal: AbortSignal.timeout(3000) }),
+      fetch(`${PROXY_BASE}/ping/mldx`, { signal: AbortSignal.timeout(3000) }),
+    ]);
+
+    const versionData = await versionRes.json();
+    const data        = await pingRes.json();
+
+    // Display the version in the header logo area.
+    const verLabel = document.getElementById('version-label');
+    if (verLabel && versionData.version) {
+      verLabel.textContent = 'v' + versionData.version;
+    }
 
     if (data.ok) {
       // Proxy is up and MacLoggerDX is reachable — proceed normally.
