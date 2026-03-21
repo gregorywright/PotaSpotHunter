@@ -26,7 +26,7 @@ POTA Spot Hunter fetches active [Parks on the Air](https://parksontheair.com) ac
 
 - 📡 **Live spot data** from `api.pota.app` — auto-refreshes at a configurable interval
 - 🎛 **Band and mode filtering**
-- 🔃 **Flexible sorting** — by frequency, callsign, or spot time (newest/oldest)
+- 🔃 **Flexible sorting** — click any column header to sort by that column; click again to reverse. Sorts by frequency (low to high) by default — ideal for tuning up through the band.
 - 🖱 **One-click tuning** — tunes your radio, triggers a callsign lookup, and pre-fills the park reference in your logging software (MacLoggerDX only for now)
 - 🔗 **Clickable links** — callsigns and park references link directly to POTA activator and park detail pages
 - 🟢 **Age indicators** — spots are colour-coded by how fresh they are
@@ -201,11 +201,10 @@ python3 PotaProxy.py --backend rigctld --rig-host 192.168.1.50
 |---|---|
 | **Band** | All, 160m through 2m |
 | **Mode** | All, CW, SSB, FT8, FT4, Other |
-| **Sort** | Newest first, Oldest first, Freq ↑, Freq ↓, Callsign A–Z |
 | **Auto-refresh** | 2, 5, 10, 15, 30, 60 min, or Manual |
 | **Auto Scan** | Off, 5s, 10s, 30s, 1m |
 
-You can also click any column header to sort by that column. Filters apply instantly without reloading.
+Click any column header to sort by that column; click again to reverse the sort direction. The default sort is frequency ascending. Filters apply instantly without reloading.
 
 ---
 

@@ -88,9 +88,23 @@
   persists on the last active spot after a scan stops or the user clicks a
   row, giving a clear visual indication of the auto-scan resume point. The
   bar only pulses while auto-scan is actively running; it is solid at rest.
+- **Amber bar now survives sort and filter changes** — `render()` restores
+  the `.scanning` class on the active row after every rebuild, so changing
+  the sort column, sort direction, band filter, or mode filter no longer
+  loses the amber bar.
 - **Location column** — multi-region locations (e.g. "JP-HB, JP-OS, JP-CH")
   are now displayed compactly as "JP-HB, +2". The full location string is
   still shown on hover via the title attribute.
+- **"Spotted (UTC)" and "Age" columns merged into "Last Heard"** — shows the
+  relative age (e.g. "4m") with colour coding, with the absolute UTC time
+  available on hover. Matches the "Last Heard" terminology used on pota.app.
+- **Column header sorting replaces sort dropdown** — all data columns are
+  now sortable by clicking the column header. Clicking the same header again
+  reverses the sort direction. The active sort column shows ▲ or ▼ in green.
+  The Sort dropdown has been removed from the toolbar.
+- **Default sort changed to frequency ascending** — spots are now sorted
+  lowest frequency first on load, so operators can tune up through the band.
+  Time-based sorts default to newest-first when clicking the Last Heard header.
 - **GitHub Actions workflow** — updated `actions/checkout` from `v4` to `v6`
   to resolve Node.js 20 deprecation warning (Node.js 24 becomes the default
   on GitHub Actions runners in June 2026).
@@ -100,3 +114,4 @@
 - `highlightTableRow()` function — replaced by `setActiveSpot()`
 - `tr.map-selected` CSS rule — the amber `.scanning` bar now serves as the
   unified active-spot indicator for both scanning and manual row selection
+- Sort dropdown from toolbar — replaced by column header clicks
