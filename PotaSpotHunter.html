@@ -1084,6 +1084,8 @@ let sortDir = 'asc';            // 'asc' | 'desc'
 
 // Convert kHz string to MHz string with up to 6 decimal places.
 // MacLoggerDX tune URL expects MHz.
+// Only used by the mldx:// URL-scheme fallback in tuneSpot() — MacLoggerDX
+// normally goes through the proxy which handles the kHz→MHz conversion itself.
 function khzToMhz(khz) {
   const n = parseFloat(khz);
   if (isNaN(n)) return khz;
@@ -1252,11 +1254,11 @@ function updateSortHeaders() {
 
 // ── Filter + sort + render ───────────────────────────────
 function render() {
-  const band  = document.getElementById('band-select').value;
-  const mode  = document.getElementById('mode-select').value;
+  const bs   = document.getElementById('band-select');
+  const band = bs.value;
+  const mode = document.getElementById('mode-select').value;
 
   // Update band select styling
-  const bs = document.getElementById('band-select');
   bs.classList.toggle('active', band !== 'ALL');
 
   // Keep column header sort indicators in sync with sortCol/sortDir
@@ -1285,17 +1287,17 @@ function render() {
     return true;
   });
 
-  // Attach isNew flag to each filtered spot for use in sort and row render.
-  // We do this here (after filtering) so only visible spots are checked.
-  spots.forEach(s => {
-    s._isNew = newSpotKeys.has(spotKey(
+  // Build a Set of spotIds that are new this cycle, for use in sort and render.
+  // Avoids mutating the API objects from allSpots.
+  const newSpotIds = new Set(
+    spots.filter(s => newSpotKeys.has(spotKey(
       s.activator || '',
       s.frequency || '',
       (s.mode || '').toUpperCase(),
       s.reference || '',
       parseSpotTime(s.spotTime)
-    ));
-  });
+    ))).map(s => s.spotId)
+  );
 
   // --- Sort ---
   // sortCol and sortDir are module-level state set by column header clicks.
@@ -1318,7 +1320,7 @@ function render() {
       case 'new':
         // Sort new spots first (asc = new first since '1' > '0' would be wrong,
         // so we invert: new=1 sorts before not-new=0 when dir is asc)
-        return -dir * ((a._isNew ? 1 : 0) - (b._isNew ? 1 : 0));
+        return -dir * ((newSpotIds.has(a.spotId) ? 1 : 0) - (newSpotIds.has(b.spotId) ? 1 : 0));
       case 'time':
       default:
         return dir * (parseSpotTime(a.spotTime).getTime() - parseSpotTime(b.spotTime).getTime());
@@ -1357,19 +1359,17 @@ function render() {
     // Use composite key to recognise re-spotted activations after a refresh.
     // spotId changes each time a spot is re-posted; callsign+band+mode+ref+date
     // correctly identifies the same scoring opportunity across refreshes.
-    const isNew    = s._isNew || false;
-    const freshCls = '';
+    const isNew    = newSpotIds.has(id);
 
     return `<tr data-id="${id}" data-freq="${esc(freqKhz)}" data-mode="${esc(modeRaw)}"
-                data-callsign="${esc(callsign)}" data-ref="${esc(ref)}" data-park="${esc(park)}"
-                data-new="${isNew ? '1' : '0'}">
+                data-callsign="${esc(callsign)}" data-ref="${esc(ref)}" data-park="${esc(park)}">
       <td class="freq">${esc(freqKhz)}</td>
       <td class="mode">${esc(modeDisp)}</td>
       <td class="callsign"><a class="spot-link" href="https://pota.app/#/profile/${esc(callsign)}" target="_blank" title="POTA profile: ${esc(callsign)}">${esc(callsign)}</a></td>
       <td class="ref"><a class="spot-link" href="https://pota.app/#/park/${esc(ref)}" target="_blank" title="POTA park: ${esc(ref)}">${esc(ref)}</a></td>
       <td class="park" title="${esc(park)}">${esc(park.length > 36 ? park.slice(0,34)+'…' : park)}</td>
       <td class="loc" title="${esc(loc)}">${esc(fmtLocation(loc))}</td>
-      <td class="age ${age.cls}${freshCls}" title="${fmtUTC(spotTime)}">${age.text}</td>
+      <td class="age ${age.cls}" title="${fmtUTC(spotTime)}">${age.text}</td>
       <td class="new-spot" title="New since last refresh">${isNew ? '&#9679;' : ''}</td>
     </tr>`;
   });
@@ -1680,7 +1680,7 @@ document.getElementById('spot-tbody').addEventListener('click', e => {
 // Clicking a marker:
 //   1. Opens a popup with callsign / freq / mode / park ref / park name
 //   2. Highlights the matching table row and scrolls it into view
-//   3. Exposes a "Tune" button in the popup that calls tuneSpot()
+//   3. Tunes the radio (same as clicking the table row)
 //
 // Clicking a table row (via the existing listener above) pans and
 // zooms the map to that spot's marker.
@@ -1688,7 +1688,6 @@ document.getElementById('spot-tbody').addEventListener('click', e => {
 let leafletMap   = null;   // Leaflet map instance (created on first open)
 let markersLayer = null;   // Leaflet LayerGroup holding all circle markers
 let markerIndex  = {};     // spotId → Leaflet marker, rebuilt on each render
-// Note: selectedMarkerId replaced by activeSpotId (see state variables above)
 
 // Colour for a spot based on its age class
 function markerColor(ageClass) {
@@ -1746,7 +1745,7 @@ function initMap() {
 // to the matching table row, and keeps the map marker selection in sync.
 //
 // Called from:
-//   tuneSpot()       — when the user clicks a row or tune button
+//   tuneSpot()       — when the user clicks a row
 //   autoScanStep()   — as the scanner advances through the list
 //   map marker click — when the user clicks a map marker
 //
@@ -1848,8 +1847,6 @@ function updateMap(spots) {
     countEl.textContent = n + ' park' + (n !== 1 ? 's' : '') + ' on map';
   }
 }
-
-// highlightTableRow() removed — setActiveSpot() now handles row highlighting.
 
 // Pan/zoom the map to a specific spot (called when a table row is clicked).
 function mapPanToSpot(spotId) {
@@ -1983,10 +1980,6 @@ document.getElementById('btn-map').addEventListener('click', () => {
 });
 
 document.getElementById('map-close').addEventListener('click', closeMap);
-
-// tr.map-selected style removed — .scanning (amber bar) now serves as the
-// unified active-spot indicator for both auto-scan and manual selection.
-
 
 document.getElementById('band-select').addEventListener('change', render);
 document.getElementById('mode-select').addEventListener('change', render);
@@ -2139,7 +2132,6 @@ function autoScanStep() {
   const ref      = s.reference || '';
   const park     = s.name || '';
 
-  // Call tuneSpot() which handles rig control, render(), and setActiveSpot().
   // tuneSpot() handles rig control, render(), and setActiveSpot() internally.
   // NOTE: do NOT call render() again after tuneSpot() — it already does so.
   const fakeEvt = { stopPropagation: () => {} };
