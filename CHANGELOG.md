@@ -68,3 +68,35 @@
   badge was redundant and added visual noise
 - Unused `sortCol` and `sortDir` state variables (sorting is driven entirely
   by the dropdown; these were never read)
+
+## [1.3.0] - 2025-03-20
+### Added
+- **Auto-scan resume** — interrupting a scan (any click or keypress) and
+  restarting it now resumes from the spot where it was paused, rather than
+  always restarting from the top of the list. Clicking any row while not
+  scanning sets that row as the resume point. If the resume spot has
+  expired from the list, the scan restarts from index 0.
+- **Unified active-spot model** — a new `activeSpotId` state variable and
+  `setActiveSpot()` function serve as the single source of truth for which
+  spot is "active". This drives the amber bar, map marker selection, and
+  auto-scan resume point consistently. Previously these were three separate
+  tracking mechanisms (`selectedMarkerId`, `.scanning` class management, and
+  `autoScanIndex`) that could get out of sync.
+
+### Changed
+- **Amber bar is now solid when not scanning** — the left-edge amber bar
+  persists on the last active spot after a scan stops or the user clicks a
+  row, giving a clear visual indication of the auto-scan resume point. The
+  bar only pulses while auto-scan is actively running; it is solid at rest.
+- **Location column** — multi-region locations (e.g. "JP-HB, JP-OS, JP-CH")
+  are now displayed compactly as "JP-HB, +2". The full location string is
+  still shown on hover via the title attribute.
+- **GitHub Actions workflow** — updated `actions/checkout` from `v4` to `v6`
+  to resolve Node.js 20 deprecation warning (Node.js 24 becomes the default
+  on GitHub Actions runners in June 2026).
+
+### Removed
+- `selectedMarkerId` state variable — replaced by `activeSpotId`
+- `highlightTableRow()` function — replaced by `setActiveSpot()`
+- `tr.map-selected` CSS rule — the amber `.scanning` bar now serves as the
+  unified active-spot indicator for both scanning and manual row selection
