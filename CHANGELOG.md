@@ -1,9 +1,21 @@
 ## [Unreleased]
+### Changed
+- "Other" mode filter renamed to "Other Digital" and now excludes FT8 and FT4,
+  making all five mode filter options mutually exclusive.
+- Removed pulsing/throbbing animation from the age column. The green colour
+  coding already communicates freshness without the visual distraction.
+
 ### Fixed
 - Split mode is now explicitly turned off on every tune command for all rig
   backends (flrig, rigctld, MacLoggerDX). Previously, if the radio was left
   in split mode, clicking a spot would tune the frequency but leave split
   active, causing the radio to transmit on the wrong frequency.
+
+### Internal
+- Code cleanup: removed dead `freshCls` variable, stale tombstone comments,
+  unused `data-new` DOM attribute, and duplicate comment in `autoScanStep()`.
+- Replaced `_isNew` mutation on API spot objects with a `newSpotIds` Set
+  looked up at render time, avoiding mutation of objects we don't own.
 
 ## [1.0.0] - 2025-03-14
 ### Added
