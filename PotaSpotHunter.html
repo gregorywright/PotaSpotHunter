@@ -333,11 +333,7 @@
     border-right-color: #7a1010;
   }
 
-  #btn-clear {
-    border-color: var(--amber-dim);
-    color: var(--amber);
-  }
-  #btn-clear:hover { background: #1a1000; border-color: var(--amber); }
+
 
   .spot-count {
     font-family: var(--mono);
@@ -404,8 +400,10 @@
 
   tr { transition: background 0.08s; }
   tr:hover td { background: var(--surface2); cursor: pointer; }
-  tr.tuned td { background: var(--green-faint) !important; }
-  tr.tuned td.callsign { color: var(--green); text-shadow: 0 0 8px rgba(57,255,106,0.4); }
+  /* Active spot gets a green background — combined with the amber left bar
+     it clearly distinguishes the currently selected/scanning spot. */
+  tr.scanning td { background: var(--green-faint); }
+  tr.scanning td.callsign { color: var(--green); text-shadow: 0 0 8px rgba(57,255,106,0.4); }
 
   /* Column-specific styling */
   td.freq    { color: var(--amber); font-size: 13px; letter-spacing: 0.04em; }
@@ -418,35 +416,9 @@
   td.age.fresh  { color: var(--green); }
   td.age.recent { color: #8eb88e; }
   td.age.old    { color: var(--text-dim); }
-  td.actions { padding: 3px 8px; }
 
-  /* ── Tune button ──────────────────────────────────────── */
-  .btn-tune {
-    font-family: var(--ui);
-    font-size: 11px;
-    font-weight: 700;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    background: transparent;
-    color: var(--green-dim);
-    border: 1px solid var(--green-dim);
-    border-radius: 2px;
-    padding: 3px 10px;
-    cursor: pointer;
-    transition: all 0.12s;
-    white-space: nowrap;
-  }
-  .btn-tune:hover {
-    background: var(--green-faint);
-    color: var(--green);
-    border-color: var(--green);
-    box-shadow: 0 0 8px rgba(57,255,106,0.2);
-  }
-  .btn-tune.tuned {
-    background: var(--green-faint);
-    color: var(--green);
-    border-color: var(--green);
-  }
+
+
 
   /* ── Empty / loading states ───────────────────────────── */
   #empty-state {
@@ -832,23 +804,49 @@
   }
 
   /* ── Active spot / auto-scan row highlight ───────────── */
-  /* An inset amber left-edge bar on the active spot.
-     Uses box-shadow so it draws inside existing cell padding —
-     zero layout impact, no column shifting, works on both plain
-     and tuned (solid green) rows without disturbing the background.
-     Solid when the user has selected a spot manually or scan is paused.
-     Pulsing only while auto-scan is actively running (.active-scan class
-     is added to the <tr> by autoScanStep and removed by autoScanStop). */
+  /* The active spot (tr.scanning) gets:
+     - A green background on all cells (repurposed from the old tuned state)
+     - An amber inset bar on the first cell (zero layout cost, box-shadow)
+     Both are solid when the spot is selected manually or scan is paused.
+     Both pulse together when auto-scan is running (.active-scan class),
+     giving a unified "currently scanning here" visual. */
   tr.scanning td:first-child {
     box-shadow: inset 3px 0 0 0 rgba(255,184,48,0.9);
   }
+
+  /* Green background + amber bar both pulse in sync via the same animation.
+     Two keyframe blocks share the same 1.4s timing so they stay locked. */
   @keyframes scan-bar-pulse {
     0%   { box-shadow: inset 3px 0 0 0 rgba(255,184,48,0.9); }
     50%  { box-shadow: inset 3px 0 0 0 rgba(255,184,48,0.25); }
     100% { box-shadow: inset 3px 0 0 0 rgba(255,184,48,0.9); }
   }
+  @keyframes scan-bg-pulse {
+    0%   { background-color: var(--green-faint); }
+    50%  { background-color: transparent; }
+    100% { background-color: var(--green-faint); }
+  }
   tr.scanning.active-scan td:first-child {
     animation: scan-bar-pulse 1.4s ease-in-out infinite;
+  }
+  tr.scanning.active-scan td {
+    animation: scan-bg-pulse 1.4s ease-in-out infinite;
+  }
+  /* first-child gets both animations — bar pulse takes priority for box-shadow,
+     bg pulse handles background. Declare bar last so it wins on first-child. */
+  tr.scanning.active-scan td:first-child {
+    animation: scan-bg-pulse 1.4s ease-in-out infinite,
+               scan-bar-pulse 1.4s ease-in-out infinite;
+  }
+
+  /* ── New spot badge ───────────────────────────────────── */
+  /* Shown in the New column for spots that appeared in the most recent
+     refresh.  Cleared automatically on the next refresh cycle. */
+  td.new-spot {
+    text-align: center;
+    font-size: 14px;
+    color: var(--green);
+    text-shadow: 0 0 8px rgba(57,255,106,0.6);
   }
 </style>
 </head>
@@ -860,7 +858,6 @@
     <div class="logo">POTA <span>&#9658;</span> SPOT HUNTER<span id="version-label"></span></div>
     <div id="status-line">Initialising...</div>
     <div id="header-actions">
-      <button id="btn-clear">&#10005; Clear Tuned</button>
       <button id="btn-map" title="Toggle world map">&#9783; Map</button>
     </div>
   </header>
@@ -958,7 +955,7 @@
           <th data-col="park">Park Name</th>
           <th data-col="loc">Location</th>
           <th data-col="time">Last Heard</th>
-          <th>Tune</th>
+          <th data-col="new" title="New since last refresh">New</th>
         </tr>
       </thead>
       <tbody id="spot-tbody"></tbody>
@@ -1012,9 +1009,10 @@
 // allSpots        — raw array of spot objects from the API (QRT filtered out)
 // lastRenderedSpots — the currently visible (filtered + sorted) subset,
 //                   kept in sync by render() and used directly by auto-scan
-// tunedIds        — Set of composite keys (callsign|band|mode|ref|date) for
-//                   spots the operator has manually tuned to.  Survives spot
-//                   list refreshes because it keys on content, not spotId.
+// seenSpotKeys    — Set of composite keys for every spot ever seen. Used to
+//                   detect genuinely new spots on each refresh.
+// newSpotKeys     — Set of composite keys new in the most recent refresh.
+//                   Cleared at the start of each fetch and repopulated.
 // activeSpotId    — spotId of the "active" spot — unified concept that drives
 //                   the amber bar, map selection, and auto-scan resume point.
 //                   Set by any user click, by auto-scan steps, and by map
@@ -1064,9 +1062,19 @@ const BANDS = {
 
 // ── State ────────────────────────────────────────────────
 let allSpots     = [];
-let tunedIds     = new Set();   // composite keys for spots the operator has tuned to
-                                // key format: "callsign|band|mode|ref|utcDate"
-                                // see spotKey() for details
+// ── New-spot tracking ───────────────────────────────────
+// seenSpotKeys — composite keys of every spot seen across all refreshes.
+//   Grows each cycle; never cleared.  Used to detect genuinely new spots.
+// newSpotKeys  — composite keys of spots that appeared in the MOST RECENT
+//   refresh and were not in seenSpotKeys before that refresh.
+//   Cleared at the start of each fetchSpots() call and repopulated after.
+//   A spot is "new" only for one refresh cycle.
+//
+// We use spotKey() (callsign+band+mode+ref+date) rather than spotId so
+// that a re-spot of the same activation (new spotId, same park/band/mode)
+// is NOT treated as new — it's the same scoring opportunity for the hunter.
+let seenSpotKeys = new Set();   // all composite keys ever seen
+let newSpotKeys  = new Set();   // composite keys new in the latest refresh
 let lastFetch    = null;        // Date of the most recent successful API fetch
 let activeSpotId = null;        // spotId of the currently active spot — drives the
                                 // amber bar, map selection, and auto-scan resume.
@@ -1152,18 +1160,19 @@ function bandOf(freqKhz) {
   return null;
 }
 
-// ── Composite key for tuned-spot tracking ───────────────
+// ── Composite spot key ──────────────────────────────────
 //
-// We identify a "same spot" by callsign + band + normalised mode + park ref
-// + UTC date.  Frequency is intentionally excluded: an activator can move a
-// few kHz within a band and it's still the same scoring opportunity.
-// USB and LSB are both collapsed to SSB because POTA counts them as the same
-// mode for duplicate-QSO purposes (the official uniqueness key uses <BAND>
-// and <MODE>, and SSB logged as USB vs LSB on the same band is the same QSO).
-// UTC date is included because an activator could operate across a UTC
-// midnight and legitimately re-appear as a new scoring opportunity.
+// Identifies a unique POTA scoring opportunity: callsign + band +
+// normalised mode + park ref + UTC date.  Used for new-spot detection.
 //
-// Source for POTA duplicate-QSO key:
+// Frequency is intentionally excluded — an activator can move a few kHz
+// within a band and it's still the same scoring opportunity (POTA awards
+// credit per band, not per frequency).
+// USB and LSB are both collapsed to SSB (same QSO for POTA purposes).
+// UTC date is included because an activator operating across UTC midnight
+// is a new scoring opportunity.
+//
+// Source for POTA QSO uniqueness key:
 //   https://docs.pota.app/docs/rules.html  (Logging Requirements section)
 //   Uniqueness = STATION_CALLSIGN + CALL + MODE + QSO_DATE + BAND +
 //                MY_SIG_INFO + SIG_INFO
@@ -1193,6 +1202,24 @@ async function fetchSpots() {
     allSpots = data.filter(s => {
       const c = (s.comments || '').toUpperCase();
       return !c.includes('QRT');
+    });
+
+    // Detect new spots — those whose composite key wasn't seen before.
+    // newSpotKeys is cleared first so only this refresh cycle's new spots
+    // are flagged.  seenSpotKeys accumulates across all refreshes.
+    newSpotKeys.clear();
+    allSpots.forEach(s => {
+      const key = spotKey(
+        s.activator || '',
+        s.frequency || '',
+        (s.mode || '').toUpperCase(),
+        s.reference || '',
+        parseSpotTime(s.spotTime)
+      );
+      if (!seenSpotKeys.has(key)) {
+        newSpotKeys.add(key);
+        seenSpotKeys.add(key);
+      }
     });
 
     lastFetch = new Date();
@@ -1265,6 +1292,18 @@ function render() {
     return true;
   });
 
+  // Attach isNew flag to each filtered spot for use in sort and row render.
+  // We do this here (after filtering) so only visible spots are checked.
+  spots.forEach(s => {
+    s._isNew = newSpotKeys.has(spotKey(
+      s.activator || '',
+      s.frequency || '',
+      (s.mode || '').toUpperCase(),
+      s.reference || '',
+      parseSpotTime(s.spotTime)
+    ));
+  });
+
   // --- Sort ---
   // sortCol and sortDir are module-level state set by column header clicks.
   // String columns use localeCompare; numeric/time columns use subtraction.
@@ -1283,6 +1322,10 @@ function render() {
         return dir * (a.name || '').localeCompare(b.name || '');
       case 'loc':
         return dir * (a.locationDesc || '').localeCompare(b.locationDesc || '');
+      case 'new':
+        // Sort new spots first (asc = new first since '1' > '0' would be wrong,
+        // so we invert: new=1 sorts before not-new=0 when dir is asc)
+        return -dir * ((a._isNew ? 1 : 0) - (b._isNew ? 1 : 0));
       case 'time':
       default:
         return dir * (parseSpotTime(a.spotTime).getTime() - parseSpotTime(b.spotTime).getTime());
@@ -1321,12 +1364,12 @@ function render() {
     // Use composite key to recognise re-spotted activations after a refresh.
     // spotId changes each time a spot is re-posted; callsign+band+mode+ref+date
     // correctly identifies the same scoring opportunity across refreshes.
-    const tuned    = tunedIds.has(spotKey(callsign, freqKhz, modeRaw, ref, spotTime));
+    const isNew    = s._isNew || false;
     const freshCls = age.cls === 'fresh' ? ' fresh-pulse' : '';
 
     return `<tr data-id="${id}" data-freq="${esc(freqKhz)}" data-mode="${esc(modeRaw)}"
                 data-callsign="${esc(callsign)}" data-ref="${esc(ref)}" data-park="${esc(park)}"
-                class="${tuned ? 'tuned' : ''}">
+                data-new="${isNew ? '1' : '0'}">
       <td class="freq">${esc(freqKhz)}</td>
       <td class="mode">${esc(modeDisp)}</td>
       <td class="callsign"><a class="spot-link" href="https://pota.app/#/profile/${esc(callsign)}" target="_blank" title="POTA profile: ${esc(callsign)}">${esc(callsign)}</a></td>
@@ -1334,12 +1377,7 @@ function render() {
       <td class="park" title="${esc(park)}">${esc(park.length > 36 ? park.slice(0,34)+'…' : park)}</td>
       <td class="loc" title="${esc(loc)}">${esc(fmtLocation(loc))}</td>
       <td class="age ${age.cls}${freshCls}" title="${fmtUTC(spotTime)}">${age.text}</td>
-      <td class="actions">
-        <button class="btn-tune${tuned ? ' tuned' : ''}"
-                onclick="tuneSpot(event, ${id}, '${esc(freqKhz)}', '${esc(modeRaw)}', '${esc(callsign)}', '${esc(ref)}', '${esc(park)}')">
-          ${tuned ? '&#10003; Tuned' : 'Tune'}
-        </button>
-      </td>
+      <td class="new-spot" title="New since last refresh">${isNew ? '&#9679;' : ''}</td>
     </tr>`;
   });
 
@@ -1607,21 +1645,6 @@ function tuneSpot(evt, id, freqKhz, modeRaw, callsign, ref, park) {
       modeDisp + '  ' + callsign + '  ' + ref);
   }
 
-  // Mark row as tuned regardless of backend (visual feedback).
-  // Use the composite key (callsign + band + mode + ref + UTC date) so that
-  // re-spots of the same activation — which get a new spotId from the API —
-  // are still recognised as already-tuned after a refresh.
-  const spot = allSpots.find(s => s.spotId === id);
-  if (spot) {
-    tunedIds.add(spotKey(
-      callsign,
-      freqKhz,
-      modeRaw,
-      ref,
-      parseSpotTime(spot.spotTime)
-    ));
-  }
-
   // render() rebuilds tbody.innerHTML so the .scanning class must be applied
   // AFTER render(), not before — otherwise render() destroys it immediately.
   render();
@@ -1633,12 +1656,13 @@ function tuneSpot(evt, id, freqKhz, modeRaw, callsign, ref, park) {
   setActiveSpot(id);
 }
 
-// ── Row click also triggers tune ─────────────────────────
+// ── Row click tunes the spot ────────────────────────────
+// Clicking anywhere on a row tunes the radio and sets the active spot.
 // tuneSpot() calls setActiveSpot() which moves the amber bar and
 // updates the map marker selection. We also pan the map to the spot.
 document.getElementById('spot-tbody').addEventListener('click', e => {
   const row = e.target.closest('tr');
-  if (!row || e.target.classList.contains('btn-tune')) return;
+  if (!row) return;
   if (e.target.closest('a.spot-link')) return;
   const { id, freq, mode, callsign, ref, park } = row.dataset;
   const spotId = parseInt(id);
@@ -1987,11 +2011,6 @@ document.getElementById('btn-refresh').addEventListener('click', () => {
   }
 });
 
-document.getElementById('btn-clear').addEventListener('click', () => {
-  tunedIds.clear();
-  render();
-});
-
 // ── Column header sort ───────────────────────────────────
 // Clicking a sortable header (any th with data-col) sets that column as
 // the sort key.  Clicking the same column again reverses the direction.
@@ -2063,7 +2082,7 @@ function updateRefreshLabel() {
 // Auto-tune vs manual tune
 // ------------------------
 // During auto-scan, tuneSpot() is called exactly as if the user clicked
-// a row, EXCEPT we do NOT add the spot to tunedIds — auto-scan should not
+// a row. Auto-scan does NOT mark spots as worked — it just tunes the radio.
 // permanently mark spots as "worked", only the user's deliberate click does.
 //
 // Scan resume behaviour
@@ -2127,21 +2146,11 @@ function autoScanStep() {
   const ref      = s.reference || '';
   const park     = s.name || '';
 
-  // Tune without marking as worked — save tunedIds, call tuneSpot()
-  // (which calls render() then setActiveSpot() internally), then restore
-  // tunedIds.  setActiveSpot() moves the amber bar and updates the map.
-  //
-  // NOTE: do NOT call render() again after tuneSpot() — tuneSpot() already
-  // calls render() and then setActiveSpot(). A second render() here would
-  // destroy the .scanning class that setActiveSpot() just applied.
-  const keyBefore = new Set(tunedIds);
-  const fakeEvt   = { stopPropagation: () => {} };
+  // Call tuneSpot() which handles rig control, render(), and setActiveSpot().
+  // tuneSpot() handles rig control, render(), and setActiveSpot() internally.
+  // NOTE: do NOT call render() again after tuneSpot() — it already does so.
+  const fakeEvt = { stopPropagation: () => {} };
   tuneSpot(fakeEvt, s.spotId, freqKhz, modeRaw, callsign, ref, park);
-  // Restore tunedIds — auto-scan doesn't permanently mark spots as worked.
-  // We do this after tuneSpot() so tunedIds is back to its original state
-  // before the next render() (triggered by the next autoScanStep call).
-  tunedIds.clear();
-  keyBefore.forEach(k => tunedIds.add(k));
 
   // Mark the row as actively scanning (adds pulse animation).
   // setActiveSpot() (called inside tuneSpot) applied .scanning;

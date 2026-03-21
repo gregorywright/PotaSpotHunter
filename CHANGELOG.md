@@ -82,12 +82,27 @@
   auto-scan resume point consistently. Previously these were three separate
   tracking mechanisms (`selectedMarkerId`, `.scanning` class management, and
   `autoScanIndex`) that could get out of sync.
+- **"New" column** — a sortable column showing a green dot (●) next to spots
+  that appeared in the most recent refresh and haven't been seen before in
+  this session. Uses the POTA QSO uniqueness key (callsign + band + mode +
+  park ref + UTC date) so that re-spots of the same activation are not
+  flagged as new — only genuinely new scoring opportunities are marked.
+  The indicator clears automatically on the next refresh cycle.
 
 ### Changed
 - **Amber bar is now solid when not scanning** — the left-edge amber bar
   persists on the last active spot after a scan stops or the user clicks a
   row, giving a clear visual indication of the auto-scan resume point. The
   bar only pulses while auto-scan is actively running; it is solid at rest.
+- **Active spot green background** — the active spot row now shows a green
+  background, repurposed from the removed tuned-row highlight. Combined with
+  the amber bar it clearly marks the currently selected spot. During
+  auto-scan both the green background and the amber bar pulse in sync at
+  the same 1.4s timing.
+- `sortCol` and `sortDir` reintroduced as the primary sort state, now driven
+  by column header clicks rather than the removed dropdown (the 1.2.0
+  release notes describe these as unused and removed; they are now
+  meaningfully used).
 - **Amber bar now survives sort and filter changes** — `render()` restores
   the `.scanning` class on the active row after every rebuild, so changing
   the sort column, sort direction, band filter, or mode filter no longer
@@ -115,3 +130,10 @@
 - `tr.map-selected` CSS rule — the amber `.scanning` bar now serves as the
   unified active-spot indicator for both scanning and manual row selection
 - Sort dropdown from toolbar — replaced by column header clicks
+- **Tune column and tuned-spot tracking** — the "Tune" button column,
+  `tunedIds` Set, `tr.tuned` CSS, and "Clear Tuned" button have all been
+  removed. Tracking which stations have been worked is a logging concern
+  handled by MacLoggerDX and similar software, not a spot-browser concern.
+  Clicking any row now tunes the radio directly; no separate button is needed.
+- `autoScanStep()` tunedIds save/restore — no longer needed now that
+  tuned tracking is removed; the function is simplified accordingly.

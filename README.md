@@ -27,9 +27,10 @@ POTA Spot Hunter fetches active [Parks on the Air](https://parksontheair.com) ac
 - 📡 **Live spot data** from `api.pota.app` — auto-refreshes at a configurable interval
 - 🎛 **Band and mode filtering**
 - 🔃 **Flexible sorting** — click any column header to sort by that column; click again to reverse. Sorts by frequency (low to high) by default — ideal for tuning up through the band.
-- 🖱 **One-click tuning** — tunes your radio, triggers a callsign lookup, and pre-fills the park reference in your logging software (MacLoggerDX only for now)
+- 🖱 **One-click tuning** — click any row to tune your radio, trigger a callsign lookup, and pre-fill the park reference in your logging software (MacLoggerDX only for now)
 - 🔗 **Clickable links** — callsigns and park references link directly to POTA activator and park detail pages
 - 🟢 **Age indicators** — spots are colour-coded by how fresh they are
+- 🆕 **New spot indicator** — a green dot marks spots that appeared in the most recent refresh and haven't been seen before in this session
 - 🔁 **Configurable auto-refresh** — 2, 5, 10, 15, 30, or 60 minutes, or manual only
 - 🗺 **Interactive world map** — all active spots plotted on a resizable map; hover a marker to preview, click to tune
 - 📻 **Auto Scan** — automatically cycles through the visible spot list, dwelling on each spot for a configurable interval (5s, 10s, 30s, or 1m) and tuning the radio as if you clicked the row. Designed for scanning the bands when propagation is uncertain. Any click or keypress stops the scan; restarting resumes from where you left off.
@@ -64,7 +65,7 @@ The proxy will automatically open `PotaSpotHunter.html` in your default browser.
 
 ### 3. (Optional) Click-to-tune
 
-If you want to use POTA Spot Hunter to tune your rig, start MacLoggerDX, flrig, or rigctld, then select the appropriate backend from the **Rig Control** dropdown. Click any row or map marker to tune.
+If you want to use POTA Spot Hunter to tune your rig, start MacLoggerDX, flrig, or rigctld, then select the appropriate backend from the **Rig Control** dropdown. Click any row or map marker to tune your radio.
 
 ---
 
@@ -204,7 +205,7 @@ python3 PotaProxy.py --backend rigctld --rig-host 192.168.1.50
 | **Auto-refresh** | 2, 5, 10, 15, 30, 60 min, or Manual |
 | **Auto Scan** | Off, 5s, 10s, 30s, 1m |
 
-Click any column header to sort by that column; click again to reverse the sort direction. The default sort is frequency ascending. Filters apply instantly without reloading.
+Click any column header to sort by that column; click again to reverse. The default sort is frequency ascending. Filters apply instantly without reloading.
 
 ---
 
