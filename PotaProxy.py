@@ -263,6 +263,10 @@ class FlrigBackend(RigBackend):
         log.info("flrig  set_mode       %s", mode)
         client.rig.set_mode(mode)
 
+        # Ensure split is off — POTA activators never work split.
+        log.info("flrig  set_split      0")
+        client.rig.set_split(0)
+
 
 # ════════════════════════════════════════════════════════════
 # BACKEND: hamlib rigctld
@@ -512,6 +516,10 @@ class RigctldBackend(RigBackend):
             log.info("rigctld  M  %s  passband=%d", hamlib_mode, self.DEFAULT_PASSBAND)
             self._send_command(sock, f"M {hamlib_mode} {self.DEFAULT_PASSBAND}")
 
+            # Ensure split is off — POTA activators never work split.
+            log.info("rigctld  S  0 VFOA")
+            self._send_command(sock, "S 0 VFOA")
+
 
 # ════════════════════════════════════════════════════════════
 # BACKEND: MacLoggerDX (via osascript)
@@ -621,6 +629,7 @@ class MacLoggerDXBackend(RigBackend):
             'tell application "MacLoggerDX"',
             f'setLogFrequency "{freq_mhz}"',
             f'setLogMode "{mode}"',
+            'setSplitKhz "0"',
         ]
         if callsign:
             script_lines += [

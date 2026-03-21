@@ -1,3 +1,10 @@
+## [Unreleased]
+### Fixed
+- Split mode is now explicitly turned off on every tune command for all rig
+  backends (flrig, rigctld, MacLoggerDX). Previously, if the radio was left
+  in split mode, clicking a spot would tune the frequency but leave split
+  active, causing the radio to transmit on the wrong frequency.
+
 ## [1.0.0] - 2025-03-14
 ### Added
 - Initial release
