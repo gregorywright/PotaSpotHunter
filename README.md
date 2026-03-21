@@ -32,6 +32,7 @@ POTA Spot Hunter fetches active [Parks on the Air](https://parksontheair.com) ac
 - 🟢 **Age indicators** — spots are colour-coded by how fresh they are
 - 🔁 **Configurable auto-refresh** — 2, 5, 10, 15, 30, or 60 minutes, or manual only
 - 🗺 **Interactive world map** — all active spots plotted on a resizable map; hover a marker to preview, click to tune
+- 📻 **Auto Scan** — automatically cycles through the visible spot list, dwelling on each spot for a configurable interval (5s, 10s, 30s, or 1m) and tuning the radio as if you clicked the row. Designed for scanning the bands when propagation is uncertain. Any click or keypress stops the scan; restarting resumes from where you left off.
 - 🖥 **Multiple rig control backends:**
   - **MacLoggerDX** — full integration via AppleScript (frequency, mode, callsign lookup, park reference note)
   - **flrig** — frequency and mode via XML-RPC
@@ -44,13 +45,12 @@ POTA Spot Hunter fetches active [Parks on the Air](https://parksontheair.com) ac
 
 ### 1. Download and unzip
 
-Download the latest release ZIP from the [Releases page](https://github.com/gregorywright/PotaSpotHunter/releases/latest) and unzip it. You'll get three files:
+Download the latest release ZIP from the [Releases page](https://github.com/gregorywright/PotaSpotHunter/releases/latest) and unzip it. You'll get a few files including:
 
 - `PotaSpotHunter.html` — the web app
 - `PotaProxy.py` — the local proxy server
-- `README.md` — full documentation
 
-Keep all three files in the same folder.
+Keep all the files in the same folder.
 
 ### 2. Start the proxy
 
@@ -199,10 +199,11 @@ python3 PotaProxy.py --backend rigctld --rig-host 192.168.1.50
 
 | Control | Options |
 |---|---|
-| **Band** | All Bands, 160m through 70cm |
-| **Mode** | All Modes, CW, SSB, FT8, FT4, Digital (other) |
+| **Band** | All, 160m through 2m |
+| **Mode** | All, CW, SSB, FT8, FT4, Other |
 | **Sort** | Newest first, Oldest first, Freq ↑, Freq ↓, Callsign A–Z |
-| **Auto-refresh** | Every 2, 5, 10, 15, 30, 60 minutes, or Manual only |
+| **Auto-refresh** | 2, 5, 10, 15, 30, 60 min, or Manual |
+| **Auto Scan** | Off, 5s, 10s, 30s, 1m |
 
 You can also click any column header to sort by that column. Filters apply instantly without reloading.
 
@@ -213,6 +214,9 @@ You can also click any column header to sort by that column. Filters apply insta
 The proxy exposes a simple REST-like API on `http://localhost:8080`. You can call these endpoints directly from a terminal for testing:
 
 ```bash
+# Get the app version
+curl http://localhost:8080/version
+
 # List available backends
 curl http://localhost:8080/backends
 
