@@ -201,7 +201,7 @@ python3 PotaProxy.py --backend rigctld --rig-host 192.168.1.50
 | Control | Options |
 |---|---|
 | **Band** | All, 160m through 2m |
-| **Mode** | All, CW, SSB, FT8, FT4, Other |
+| **Mode** | All, CW, SSB, FT8, FT4, Other Digital |
 | **Auto-refresh** | 2, 5, 10, 15, 30, 60 min, or Manual |
 | **Auto Scan** | Off, 5s, 10s, 30s, 1m |
 
