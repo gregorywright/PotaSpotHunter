@@ -884,7 +884,7 @@
         <option value="SSB">SSB</option>
         <option value="FT8">FT8</option>
         <option value="FT4">FT4</option>
-        <option value="DIGITAL">Other</option>
+        <option value="DIGITAL">Other Digital</option>
       </select>
     </span>
 
@@ -1278,7 +1278,7 @@ function render() {
       if (mode === 'SSB') {
         if (m !== 'SSB' && m !== 'USB' && m !== 'LSB' && m !== 'AM') return false;
       } else if (mode === 'DIGITAL') {
-        const known = ['CW','SSB','USB','LSB','AM','FM'];
+        const known = ['CW','SSB','USB','LSB','AM','FM','FT8','FT4'];
         if (known.includes(m) || m === '') return false;
       } else {
         if (m !== mode) return false;
