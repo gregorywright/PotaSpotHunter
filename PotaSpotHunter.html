@@ -657,13 +657,6 @@
   /* ── Tooltip for park name overflow ──────────────────── */
   td.park { position: relative; }
 
-  /* ── Pulse animation for fresh spots ─────────────────── */
-  @keyframes pulse-green {
-    0%   { opacity: 1; }
-    50%  { opacity: 0.5; }
-    100% { opacity: 1; }
-  }
-  .fresh-pulse { animation: pulse-green 2s ease-in-out infinite; }
 
   /* ── Map panel ────────────────────────────────────────── */
   #map-panel {
@@ -1365,7 +1358,7 @@ function render() {
     // spotId changes each time a spot is re-posted; callsign+band+mode+ref+date
     // correctly identifies the same scoring opportunity across refreshes.
     const isNew    = s._isNew || false;
-    const freshCls = age.cls === 'fresh' ? ' fresh-pulse' : '';
+    const freshCls = '';
 
     return `<tr data-id="${id}" data-freq="${esc(freqKhz)}" data-mode="${esc(modeRaw)}"
                 data-callsign="${esc(callsign)}" data-ref="${esc(ref)}" data-park="${esc(park)}"
