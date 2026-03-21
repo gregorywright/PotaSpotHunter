@@ -414,7 +414,6 @@
   td.ref     { color: #7ab4ff; font-size: 11px; }
   td.park    { color: var(--text); max-width: 240px; overflow: hidden; text-overflow: ellipsis; font-family: var(--ui); font-size: 12px; }
   td.loc     { color: var(--text-dim); font-size: 11px; }
-  td.time    { color: var(--text-dim); font-size: 11px; }
   td.age     { font-size: 11px; }
   td.age.fresh  { color: var(--green); }
   td.age.recent { color: #8eb88e; }
@@ -899,16 +898,6 @@
       </select>
     </span>
 
-    <span class="ctrl-group">
-      <span class="ctrl-label">Sort</span>
-      <select id="sort-select">
-        <option value="time_desc">Newest first</option>
-        <option value="time_asc">Oldest first</option>
-        <option value="freq_asc">Freq ↑</option>
-        <option value="freq_desc">Freq ↓</option>
-        <option value="call_asc">Callsign A–Z</option>
-      </select>
-    </span>
 
     <span class="ctrl-group">
       <span class="ctrl-label">Rig</span>
@@ -962,14 +951,13 @@
     <table id="spot-table">
       <thead>
         <tr>
-          <th data-col="freq"     class="sort-asc">Freq (kHz)</th>
+          <th data-col="freq" class="sort-asc">Freq (kHz)</th>
           <th data-col="mode">Mode</th>
           <th data-col="callsign">Callsign</th>
           <th data-col="ref">Park Ref</th>
           <th data-col="park">Park Name</th>
           <th data-col="loc">Location</th>
-          <th data-col="time">Spotted (UTC)</th>
-          <th data-col="age">Age</th>
+          <th data-col="time">Last Heard</th>
           <th>Tune</th>
         </tr>
       </thead>
@@ -1082,6 +1070,14 @@ let tunedIds     = new Set();   // composite keys for spots the operator has tun
 let lastFetch    = null;        // Date of the most recent successful API fetch
 let activeSpotId = null;        // spotId of the currently active spot — drives the
                                 // amber bar, map selection, and auto-scan resume.
+
+// ── Sort state ───────────────────────────────────────────
+// Driven entirely by column header clicks — no dropdown.
+// sortCol matches the data-col attribute on <th> elements.
+// Default: frequency ascending (lowest freq first) so the
+// operator can tune up through the band.
+let sortCol = 'freq';           // active sort column
+let sortDir = 'asc';            // 'asc' | 'desc'
 
 // ── Utility functions ────────────────────────────────────
 
@@ -1220,15 +1216,31 @@ function setStatus(type, msg) {
   el.className = type;
 }
 
+// ── Sort header indicator ───────────────────────────────
+// Walks all sortable <th> elements and applies sort-asc or sort-desc
+// to whichever column matches sortCol/sortDir.  All others are cleared.
+// Called at the start of every render() so the indicators always match
+// the current sort state even after a spot-list refresh.
+function updateSortHeaders() {
+  document.querySelectorAll('th[data-col]').forEach(th => {
+    th.classList.remove('sort-asc', 'sort-desc');
+    if (th.dataset.col === sortCol) {
+      th.classList.add(sortDir === 'asc' ? 'sort-asc' : 'sort-desc');
+    }
+  });
+}
+
 // ── Filter + sort + render ───────────────────────────────
 function render() {
   const band  = document.getElementById('band-select').value;
   const mode  = document.getElementById('mode-select').value;
-  const sort  = document.getElementById('sort-select').value;
 
   // Update band select styling
   const bs = document.getElementById('band-select');
   bs.classList.toggle('active', band !== 'ALL');
+
+  // Keep column header sort indicators in sync with sortCol/sortDir
+  updateSortHeaders();
 
   // --- Filter ---
   let spots = allSpots.filter(s => {
@@ -1254,24 +1266,27 @@ function render() {
   });
 
   // --- Sort ---
-  const [sc, sd] = sort.split('_');
+  // sortCol and sortDir are module-level state set by column header clicks.
+  // String columns use localeCompare; numeric/time columns use subtraction.
   spots.sort((a, b) => {
-    let va, vb;
-    if (sc === 'freq') {
-      va = parseFloat(a.frequency) || 0;
-      vb = parseFloat(b.frequency) || 0;
-    } else if (sc === 'call') {
-      va = a.activator || '';
-      vb = b.activator || '';
-      return sd === 'asc'
-        ? va.localeCompare(vb)
-        : vb.localeCompare(va);
-    } else {
-      // time
-      va = parseSpotTime(a.spotTime).getTime();
-      vb = parseSpotTime(b.spotTime).getTime();
+    const dir = sortDir === 'asc' ? 1 : -1;
+    switch (sortCol) {
+      case 'freq':
+        return dir * ((parseFloat(a.frequency) || 0) - (parseFloat(b.frequency) || 0));
+      case 'mode':
+        return dir * (a.mode || '').localeCompare(b.mode || '');
+      case 'callsign':
+        return dir * (a.activator || '').localeCompare(b.activator || '');
+      case 'ref':
+        return dir * (a.reference || '').localeCompare(b.reference || '');
+      case 'park':
+        return dir * (a.name || '').localeCompare(b.name || '');
+      case 'loc':
+        return dir * (a.locationDesc || '').localeCompare(b.locationDesc || '');
+      case 'time':
+      default:
+        return dir * (parseSpotTime(a.spotTime).getTime() - parseSpotTime(b.spotTime).getTime());
     }
-    return sd === 'asc' ? va - vb : vb - va;
   });
 
   // --- Update count ---
@@ -1318,8 +1333,7 @@ function render() {
       <td class="ref"><a class="spot-link" href="https://pota.app/#/park/${esc(ref)}" target="_blank" title="POTA park: ${esc(ref)}">${esc(ref)}</a></td>
       <td class="park" title="${esc(park)}">${esc(park.length > 36 ? park.slice(0,34)+'…' : park)}</td>
       <td class="loc" title="${esc(loc)}">${esc(fmtLocation(loc))}</td>
-      <td class="time">${fmtUTC(spotTime)}</td>
-      <td class="age ${age.cls}${freshCls}">${age.text}</td>
+      <td class="age ${age.cls}${freshCls}" title="${fmtUTC(spotTime)}">${age.text}</td>
       <td class="actions">
         <button class="btn-tune${tuned ? ' tuned' : ''}"
                 onclick="tuneSpot(event, ${id}, '${esc(freqKhz)}', '${esc(modeRaw)}', '${esc(callsign)}', '${esc(ref)}', '${esc(park)}')">
@@ -1331,6 +1345,19 @@ function render() {
 
   tbody.innerHTML = rows.join('');
   updateMap(spots);
+
+  // Re-apply the amber bar after every render() — render() rebuilds all
+  // <tr> elements from scratch, wiping any classes.  If there is an active
+  // spot, restore .scanning (and .active-scan if scanning is running) to the
+  // matching row so the bar survives sort changes, filter changes, and
+  // spot-list refreshes.
+  if (activeSpotId !== null) {
+    const activeRow = document.querySelector(`#spot-tbody tr[data-id="${activeSpotId}"]`);
+    if (activeRow) {
+      activeRow.classList.add('scanning');
+      if (autoScanTimer) activeRow.classList.add('active-scan');
+    }
+  }
 }
 
 // ── Rig control routing ──────────────────────────────────
@@ -1946,7 +1973,6 @@ document.getElementById('map-close').addEventListener('click', closeMap);
 
 document.getElementById('band-select').addEventListener('change', render);
 document.getElementById('mode-select').addEventListener('change', render);
-document.getElementById('sort-select').addEventListener('change', render);
 
 // When the rig backend changes, ping it immediately so the operator
 // gets instant feedback on whether the proxy / rig software is running.
@@ -1967,20 +1993,22 @@ document.getElementById('btn-clear').addEventListener('click', () => {
 });
 
 // ── Column header sort ───────────────────────────────────
+// Clicking a sortable header (any th with data-col) sets that column as
+// the sort key.  Clicking the same column again reverses the direction.
+// sortCol and sortDir persist across filter changes — the sort preference
+// is never reset by a band/mode change or spot-list refresh.
 document.querySelectorAll('th[data-col]').forEach(th => {
   th.addEventListener('click', () => {
     const col = th.dataset.col;
-    const sortMap = {
-      freq:     { asc: 'freq_asc',  desc: 'freq_desc'  },
-      time:     { asc: 'time_asc',  desc: 'time_desc'  },
-      callsign: { asc: 'call_asc',  desc: 'call_asc'   },
-    };
-    if (!sortMap[col]) return;
-    const sel = document.getElementById('sort-select');
-    const curVal = sel.value;
-    const newAsc  = sortMap[col].asc;
-    const newDesc = sortMap[col].desc;
-    sel.value = (curVal === newAsc && newDesc !== newAsc) ? newDesc : newAsc;
+    if (sortCol === col) {
+      // Same column — toggle direction
+      sortDir = sortDir === 'asc' ? 'desc' : 'asc';
+    } else {
+      // New column — default direction: asc for strings, desc for time
+      // (newest-first is the natural default for time)
+      sortCol = col;
+      sortDir = col === 'time' ? 'desc' : 'asc';
+    }
     render();
   });
 });
