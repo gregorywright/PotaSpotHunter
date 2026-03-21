@@ -832,17 +832,23 @@
     filter: drop-shadow(0 0 6px rgba(57,255,106,0.9));
   }
 
-  /* ── Auto-scan active row highlight ──────────────────── */
-  /* An inset amber left-edge bar that pulses in opacity.
+  /* ── Active spot / auto-scan row highlight ───────────── */
+  /* An inset amber left-edge bar on the active spot.
      Uses box-shadow so it draws inside existing cell padding —
      zero layout impact, no column shifting, works on both plain
-     and tuned (solid green) rows without disturbing the background. */
+     and tuned (solid green) rows without disturbing the background.
+     Solid when the user has selected a spot manually or scan is paused.
+     Pulsing only while auto-scan is actively running (.active-scan class
+     is added to the <tr> by autoScanStep and removed by autoScanStop). */
+  tr.scanning td:first-child {
+    box-shadow: inset 3px 0 0 0 rgba(255,184,48,0.9);
+  }
   @keyframes scan-bar-pulse {
     0%   { box-shadow: inset 3px 0 0 0 rgba(255,184,48,0.9); }
     50%  { box-shadow: inset 3px 0 0 0 rgba(255,184,48,0.25); }
     100% { box-shadow: inset 3px 0 0 0 rgba(255,184,48,0.9); }
   }
-  tr.scanning td:first-child {
+  tr.scanning.active-scan td:first-child {
     animation: scan-bar-pulse 1.4s ease-in-out infinite;
   }
 </style>
@@ -1021,6 +1027,11 @@
 // tunedIds        — Set of composite keys (callsign|band|mode|ref|date) for
 //                   spots the operator has manually tuned to.  Survives spot
 //                   list refreshes because it keys on content, not spotId.
+// activeSpotId    — spotId of the "active" spot — unified concept that drives
+//                   the amber bar, map selection, and auto-scan resume point.
+//                   Set by any user click, by auto-scan steps, and by map
+//                   marker clicks.  Persists across scan start/stop so the
+//                   scan always resumes from where it left off.
 // autoScan*       — state for the band-scanner feature (see auto-scan section)
 //
 // Filters and sort are applied in-place on every change; no page reload.
@@ -1064,11 +1075,13 @@ const BANDS = {
 };
 
 // ── State ────────────────────────────────────────────────
-let allSpots  = [];
-let tunedIds  = new Set();   // composite keys for spots the operator has tuned to
-                             // key format: "callsign|band|mode|ref|utcDate"
-                             // see spotKey() for details
-let lastFetch = null;        // Date of the most recent successful API fetch
+let allSpots     = [];
+let tunedIds     = new Set();   // composite keys for spots the operator has tuned to
+                                // key format: "callsign|band|mode|ref|utcDate"
+                                // see spotKey() for details
+let lastFetch    = null;        // Date of the most recent successful API fetch
+let activeSpotId = null;        // spotId of the currently active spot — drives the
+                                // amber bar, map selection, and auto-scan resume.
 
 // ── Utility functions ────────────────────────────────────
 
@@ -1118,6 +1131,20 @@ function esc(s) {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
+}
+
+// Format a locationDesc string for compact display.
+// The API can return multiple comma-separated regions, e.g. "JP-HB, JP-OS, JP-CH".
+// We show the first entry and a "+N" count for the rest to keep the column narrow.
+// The full string is preserved in the title attribute for hover display.
+//   "JP-HB"               → "JP-HB"
+//   "JP-HB, JP-OS"        → "JP-HB, +1"
+//   "JP-HB, JP-OS, JP-CH" → "JP-HB, +2"
+function fmtLocation(loc) {
+  if (!loc) return '';
+  const parts = loc.split(',').map(p => p.trim()).filter(Boolean);
+  if (parts.length <= 1) return loc;
+  return parts[0] + ', +' + (parts.length - 1);
 }
 
 // Determine which band name a frequency (kHz) falls in.
@@ -1290,7 +1317,7 @@ function render() {
       <td class="callsign"><a class="spot-link" href="https://pota.app/#/profile/${esc(callsign)}" target="_blank" title="POTA profile: ${esc(callsign)}">${esc(callsign)}</a></td>
       <td class="ref"><a class="spot-link" href="https://pota.app/#/park/${esc(ref)}" target="_blank" title="POTA park: ${esc(ref)}">${esc(ref)}</a></td>
       <td class="park" title="${esc(park)}">${esc(park.length > 36 ? park.slice(0,34)+'…' : park)}</td>
-      <td class="loc">${esc(loc)}</td>
+      <td class="loc" title="${esc(loc)}">${esc(fmtLocation(loc))}</td>
       <td class="time">${fmtUTC(spotTime)}</td>
       <td class="age ${age.cls}${freshCls}">${age.text}</td>
       <td class="actions">
@@ -1567,18 +1594,31 @@ function tuneSpot(evt, id, freqKhz, modeRaw, callsign, ref, park) {
       parseSpotTime(spot.spotTime)
     ));
   }
+
+  // render() rebuilds tbody.innerHTML so the .scanning class must be applied
+  // AFTER render(), not before — otherwise render() destroys it immediately.
   render();
+
+  // Update the active spot — moves the amber bar and keeps the map in sync.
+  // Called after render() so the newly-built row elements are in the DOM.
+  // This is the single place where a manual tune click sets the active spot,
+  // which also becomes the auto-scan resume point.
+  setActiveSpot(id);
 }
 
 // ── Row click also triggers tune ─────────────────────────
+// tuneSpot() calls setActiveSpot() which moves the amber bar and
+// updates the map marker selection. We also pan the map to the spot.
 document.getElementById('spot-tbody').addEventListener('click', e => {
   const row = e.target.closest('tr');
   if (!row || e.target.classList.contains('btn-tune')) return;
   if (e.target.closest('a.spot-link')) return;
   const { id, freq, mode, callsign, ref, park } = row.dataset;
-  tuneSpot(e, parseInt(id), freq, mode, callsign, ref, park);
-  // Also pan map to this spot if map is open
-  mapPanToSpot(parseInt(id));
+  const spotId = parseInt(id);
+  tuneSpot(e, spotId, freq, mode, callsign, ref, park);
+  // Pan map to this spot (setActiveSpot handles the marker selection,
+  // mapPanToSpot handles the viewport pan and popup)
+  mapPanToSpot(spotId);
 });
 
 // ── Map ──────────────────────────────────────────────────
@@ -1601,10 +1641,10 @@ document.getElementById('spot-tbody').addEventListener('click', e => {
 // Clicking a table row (via the existing listener above) pans and
 // zooms the map to that spot's marker.
 
-let leafletMap       = null;   // Leaflet map instance (created on first open)
-let markersLayer     = null;   // Leaflet LayerGroup holding all circle markers
-let markerIndex      = {};     // spotId → Leaflet marker, rebuilt on each render
-let selectedMarkerId = null;   // spotId of the currently highlighted marker
+let leafletMap   = null;   // Leaflet map instance (created on first open)
+let markersLayer = null;   // Leaflet LayerGroup holding all circle markers
+let markerIndex  = {};     // spotId → Leaflet marker, rebuilt on each render
+// Note: selectedMarkerId replaced by activeSpotId (see state variables above)
 
 // Colour for a spot based on its age class
 function markerColor(ageClass) {
@@ -1655,6 +1695,37 @@ function initMap() {
   markersLayer = L.layerGroup().addTo(leafletMap);
 }
 
+// ── Active spot — unified selection model ────────────────
+//
+// setActiveSpot() is the single point of truth for changing which spot
+// is "active".  It updates activeSpotId, applies the amber .scanning bar
+// to the matching table row, and keeps the map marker selection in sync.
+//
+// Called from:
+//   tuneSpot()       — when the user clicks a row or tune button
+//   autoScanStep()   — as the scanner advances through the list
+//   map marker click — when the user clicks a map marker
+//
+// The .scanning class persists after scan stops so the amber bar shows
+// which spot the scan will resume from.  It is only cleared when
+// setActiveSpot() moves it to a different row, or when no matching row
+// exists in the current rendered list (spot expired/filtered out).
+function setActiveSpot(spotId) {
+  activeSpotId = spotId;
+
+  // Move the amber bar to the new active row.
+  document.querySelectorAll('tr.scanning').forEach(r => r.classList.remove('scanning'));
+  const row = document.querySelector(`#spot-tbody tr[data-id="${spotId}"]`);
+  if (row) {
+    row.classList.add('scanning');
+    row.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+
+  // Keep the map marker selection in sync.
+  // updateMap() uses activeSpotId directly, so just redraw markers.
+  if (leafletMap) updateMap(lastRenderedSpots);
+}
+
 // Called by render() to keep the map in sync with the filtered spot list.
 // renderedSpots is the same filtered+sorted array render() displays.
 let lastRenderedSpots = [];
@@ -1678,7 +1749,7 @@ function updateMap(spots) {
     const id       = s.spotId;
     const spotTime = parseSpotTime(s.spotTime);
     const age      = spotAge(spotTime);
-    const selected = (id === selectedMarkerId);
+    const selected = (id === activeSpotId);
 
     const marker = L.marker([s.latitude, s.longitude], {
       icon: makeMarkerIcon(age.cls, selected),
@@ -1707,20 +1778,17 @@ function updateMap(spots) {
 
     // Mouse out: close popup only if this marker wasn't clicked/selected
     marker.on('mouseout', () => {
-      if (selectedMarkerId !== id) {
+      if (activeSpotId !== id) {
         marker.closePopup();
       }
     });
 
     marker.on('click', () => {
-      selectedMarkerId = id;
-      highlightTableRow(id);
-      // Tune the radio — same behaviour as clicking a table row
+      // Tune the radio and set this as the active spot.
+      // setActiveSpot() handles the amber bar, map redraw, and scroll.
       const fakeEvt = { stopPropagation: () => {} };
       tuneSpot(fakeEvt, id, freqKhz, modeRaw, callsign, ref, park);
-      // Redraw markers so selection highlight updates
-      updateMap(lastRenderedSpots);
-      // Re-open popup on the new marker after redraw
+      // Re-open popup on the new marker after redraw (updateMap redraws markers)
       const newMarker = markerIndex[id];
       if (newMarker) newMarker.openPopup();
     });
@@ -1737,17 +1805,7 @@ function updateMap(spots) {
   }
 }
 
-// Scroll the matching table row into view and briefly flash it.
-function highlightTableRow(spotId) {
-  const tbody = document.getElementById('spot-tbody');
-  // Remove any previous highlight
-  tbody.querySelectorAll('tr.map-selected').forEach(r => r.classList.remove('map-selected'));
-  const row = tbody.querySelector(`tr[data-id="${spotId}"]`);
-  if (row) {
-    row.classList.add('map-selected');
-    row.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-  }
-}
+// highlightTableRow() removed — setActiveSpot() now handles row highlighting.
 
 // Pan/zoom the map to a specific spot (called when a table row is clicked).
 function mapPanToSpot(spotId) {
@@ -1755,14 +1813,13 @@ function mapPanToSpot(spotId) {
   const spot = lastRenderedSpots.find(s => s.spotId === spotId);
   if (!spot || spot.latitude == null) return;
 
-  selectedMarkerId = spotId;
+  // activeSpotId is already set by setActiveSpot() before this is called;
+  // we just need to pan the map view and open the popup.
   leafletMap.setView([spot.latitude, spot.longitude], Math.max(leafletMap.getZoom(), 5), {
     animate: true,
   });
 
-  updateMap(lastRenderedSpots);
-
-  // Open popup after the map redraws
+  // Open popup after the map redraws (markers already updated by setActiveSpot)
   requestAnimationFrame(() => {
     const marker = markerIndex[spotId];
     if (marker) marker.openPopup();
@@ -1883,18 +1940,8 @@ document.getElementById('btn-map').addEventListener('click', () => {
 
 document.getElementById('map-close').addEventListener('click', closeMap);
 
-// CSS for the map-selected row highlight
-(function() {
-  const s = document.createElement('style');
-  s.textContent = `
-    tr.map-selected td {
-      background: #0a1a2a !important;
-      outline: 1px solid #7ab4ff;
-      outline-offset: -1px;
-    }
-  `;
-  document.head.appendChild(s);
-})();
+// tr.map-selected style removed — .scanning (amber bar) now serves as the
+// unified active-spot indicator for both auto-scan and manual selection.
 
 
 document.getElementById('band-select').addEventListener('change', render);
@@ -1991,11 +2038,21 @@ function updateRefreshLabel() {
 // a row, EXCEPT we do NOT add the spot to tunedIds — auto-scan should not
 // permanently mark spots as "worked", only the user's deliberate click does.
 //
+// Scan resume behaviour
+// ----------------------
+// activeSpotId persists across scan stop/start.  When a scan is started,
+// autoScanStart() looks up activeSpotId in lastRenderedSpots:
+//   - Found  → resume from that spot
+//   - Not found / null → start from index 0
+// This means interrupting a scan and restarting always picks up where
+// you left off, and clicking a row while not scanning sets the start point.
+//
 // Spot list refresh during scan
 // ------------------------------
-// If the spot list refreshes while scanning, we just continue from the
-// next index in the new list.  If the index is past the end of the new
-// list we wrap back to 0.
+// The scan continues from the current autoScanIndex in the new list.
+// If the index is past the end of the new list it wraps to 0.
+// If the active spot disappears from the list on next scan start,
+// the scan restarts from index 0.
 
 let autoScanTimer   = null;   // setInterval handle
 let autoScanIndex   = 0;      // index into the currently rendered spot list
@@ -2009,15 +2066,17 @@ function autoScanStart(dwellSecs) {
   autoScanStop(false);   // clear any existing timer without resetting pills
 
   autoScanDwell = dwellSecs;
-  autoScanIndex = 0;
 
-  // Scroll the table to the top so the first spot is always visible.
-  // Subsequent steps use scrollIntoView({block:'nearest'}) which keeps
-  // the active row in view as the scan progresses down the list.
-  const tableWrap = document.getElementById('table-wrap');
-  if (tableWrap) tableWrap.scrollTop = 0;
+  // Resume from the active spot if it's still in the current list,
+  // otherwise start from the beginning.
+  // This means: if the user interrupted a scan, or clicked a row while
+  // not scanning, the scan picks up from the amber bar's current position.
+  const resumeIndex = activeSpotId !== null
+    ? lastRenderedSpots.findIndex(s => s.spotId === activeSpotId)
+    : -1;
+  autoScanIndex = resumeIndex >= 0 ? resumeIndex : 0;
 
-  // Tune the first spot immediately, then start the interval
+  // Tune the active spot immediately, then start the interval
   autoScanStep();
 
   autoScanTimer = setInterval(() => {
@@ -2040,43 +2099,50 @@ function autoScanStep() {
   const ref      = s.reference || '';
   const park     = s.name || '';
 
-  // Tune without marking as worked — pass a synthetic event and then
-  // immediately remove the key that tuneSpot() would have added.
+  // Tune without marking as worked — save tunedIds, call tuneSpot()
+  // (which calls render() then setActiveSpot() internally), then restore
+  // tunedIds.  setActiveSpot() moves the amber bar and updates the map.
+  //
+  // NOTE: do NOT call render() again after tuneSpot() — tuneSpot() already
+  // calls render() and then setActiveSpot(). A second render() here would
+  // destroy the .scanning class that setActiveSpot() just applied.
   const keyBefore = new Set(tunedIds);
   const fakeEvt   = { stopPropagation: () => {} };
   tuneSpot(fakeEvt, s.spotId, freqKhz, modeRaw, callsign, ref, park);
-  // Restore tunedIds to what it was before — auto-scan doesn't mark spots
+  // Restore tunedIds — auto-scan doesn't permanently mark spots as worked.
+  // We do this after tuneSpot() so tunedIds is back to its original state
+  // before the next render() (triggered by the next autoScanStep call).
   tunedIds.clear();
   keyBefore.forEach(k => tunedIds.add(k));
-  render();
 
-  // Apply the pulsing scan highlight to the active row.
-  // Clear any previous scanning row first, then mark the new one.
-  document.querySelectorAll('tr.scanning').forEach(r => r.classList.remove('scanning'));
-  const activeRow = document.querySelector(`#spot-tbody tr[data-id="${s.spotId}"]`);
-  if (activeRow) {
-    activeRow.classList.add('scanning');
-    // Keep the active row visible as the scan moves down the list.
-    // 'nearest' means: scroll only if the row is outside the viewport,
-    // and prefer the minimum scroll distance.  The table was already
-    // scrolled to the top in autoScanStart so this just tracks progress.
-    activeRow.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-  }
+  // Mark the row as actively scanning (adds pulse animation).
+  // setActiveSpot() (called inside tuneSpot) applied .scanning;
+  // we now also add .active-scan so the bar pulses while scanning is running.
+  const scanRow = document.querySelector(`#spot-tbody tr[data-id="${s.spotId}"]`);
+  if (scanRow) scanRow.classList.add('active-scan');
 
-  // Also pan map to this spot if the map is open
+  // Pan the map to this spot if the map is open.
+  // The amber bar and marker selection are already handled by setActiveSpot()
+  // (called inside tuneSpot above).
   mapPanToSpot(s.spotId);
 }
 
 // stop: if resetPills is true (default), reset pill UI to OFF.
 // Pass false when changing dwell mid-scan so we update pills separately.
+//
+// NOTE: we deliberately do NOT clear the .scanning class here.
+// The amber bar stays on the last active spot so the user can see
+// where the scan will resume from when they start it again.
+// The bar is only moved (not cleared) by the next setActiveSpot() call.
 function autoScanStop(resetPills = true) {
   if (autoScanTimer) {
     clearInterval(autoScanTimer);
     autoScanTimer = null;
   }
   autoScanDwell = 0;
-  // Remove the pulsing highlight from whichever row was active
-  document.querySelectorAll('tr.scanning').forEach(r => r.classList.remove('scanning'));
+  // Remove the pulse animation — bar stays solid on the last active spot
+  // so the user can see the resume point, but it no longer pulses.
+  document.querySelectorAll('tr.active-scan').forEach(r => r.classList.remove('active-scan'));
   if (resetPills) updateScanPills();
 }
 
