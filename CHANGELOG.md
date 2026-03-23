@@ -1,4 +1,6 @@
 ## [Unreleased]
+### Documentation
+- Updated screenshots and demo GIF to reflect current UI.
 
 ## [1.4.0] - 2026-03-22
 ### Changed
