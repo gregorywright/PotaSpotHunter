@@ -256,7 +256,136 @@ GET /lookup_calls?calls=W1AW,K8BSR,...
   needed — map referencePrefix (US, CA, JA, etc.) to flag emoji. No auth
   required.
 
-- **Startup ping fix** — ping the selected backend on startup, not always
+- **Awards tracking / gamification** — ask the user for their callsign once
+  (stored in localStorage), fetch their POTA profile, and show award progress
+  and gamification hints inline. No authentication required for the features
+  listed below.
+
+  **Public API endpoints used:**
+  ```
+  GET https://api.pota.app/profile/<call>
+  → full awards list with names, granted dates, and band/mode endorsements
+  → hunter parks count and recent hunter QSOs (last 25)
+
+  GET https://api.pota.app/stats/user/<call>
+  → summary counts (parks, QSOs, awards, endorsements)
+  ```
+
+  **Award tier ladder (hunter parks required):**
+  Bronze(10) → Silver(20) → Gold(30) → Platinum(40) → Diamond(50) →
+  Sapphire(75) → Arizona Agave(100) → Enrubio(200) → Ouachita Mountain
+  Goldenrod(300) → Stenogyne Kanehoana(400) → Howell's Spectacular
+  Thelypody(500) → Texas Wild Rice(600) → ... continuing in increments of
+  500 with endangered species names up to 20,000 parks.
+
+  **Features achievable without auth:**
+
+  1. **Award tier progress bar** — show current tier, parks count, and parks
+     needed for next tier. E.g.:
+     `🏆 Sapphire → Arizona Agave: 135/200 ████████░░ 65 to go`
+     Display in header or collapsible panel.
+
+  2. **Band/mode endorsement hints** — profile returns existing endorsements
+     (e.g. 20m, CW). Highlight spots on bands/modes the hunter doesn't yet
+     have an endorsement for with a small ✨ indicator on the spot row.
+     "Working this spot would earn you a new 40m endorsement."
+
+  3. **Activator experience badge** — fetch `/profile/<activator_call>` in
+     the background (cached, same pattern as worked_cache). Show activator's
+     total activation count as a small badge on the callsign. "37 activations"
+     signals a reliable operator likely to make the 10 QSO minimum.
+
+  4. **Operator-to-operator count** — from the worked_cache (already planned),
+     show how many times the hunter has worked this specific activator.
+     Fun social element — "You've worked W1AW 5 times."
+
+  5. **Recent activity context** — profile includes last 25 hunter QSOs with
+     band, mode, park ref, and date. Use this at session start to seed the
+     worked_cache with "worked recently" data before the UDP listener takes
+     over for the current session.
+
+  **What requires auth (not yet possible):**
+  - "Have I worked this specific park before?" — needs full logbook
+  - New park highlighting on spot rows
+  - The `/user/logbook` endpoint requires a valid session token
+
+  **Authentication research notes:**
+  - POTA uses AWS Cognito with PKCE OAuth2
+  - Login: `parksontheair.auth.us-east-2.amazoncognito.com`
+  - Cognito client ID: `7hluqct0n2nckib7i7sd5753oa`
+  - Redirect is hardcoded to `https://pota.app/` — we cannot intercept it
+    without POTA registering `http://localhost:8080/auth/callback`
+  - POTA API docs mention an "Application Key" system but docs are incomplete
+  - POTA API terms prohibit use in apps with third-party tracking
+
+  **⚠️ Action item: reach out to POTA before doing anything with auth.**
+  Introduce PotaSpotHunter, ask if they have a supported path for third-party
+  desktop apps to access authenticated user data. Don't attempt to work around
+  the auth flow without their knowledge. Contact via POTA Slack or support page:
+  https://docs.pota.app/docs/support.html
+
+  **Auth-free fallback for worked parks:**
+  - ADIF import — user exports log from pota.app, imports into PotaSpotHunter.
+    Parse to extract hunted park refs. One-time setup, re-import to refresh.
+  - MLDX log mining — extract park refs from `note` field of MLDX QSOs
+    (set to "POTA US-1234" on every tune). MLDX users only.
+
+  **What's available without auth (public API):**
+  ```
+  GET https://api.pota.app/profile/<call>
+  → full awards list with names, granted dates, and band/mode endorsements
+  → hunter parks count and recent hunter QSOs (last 25)
+
+  GET https://api.pota.app/stats/user/<call>
+  → summary counts only (parks, QSOs, awards, endorsements)
+  ```
+
+  **Award tier ladder (hunter parks required):**
+  Bronze(10) → Silver(20) → Gold(30) → Platinum(40) → Diamond(50) →
+  Sapphire(75) → Arizona Agave(100) → Enrubio(200) → Ouachita Mountain
+  Goldenrod(300) → Stenogyne Kanehoana(400) → Howell's Spectacular
+  Thelypody(500) → Texas Wild Rice(600) → ... continuing in increments of
+  500 with endangered species names up to 20,000 parks.
+
+  **Without auth we can show:**
+  - Current award tier and parks count
+  - Parks needed for next tier (e.g. "135 parks — 65 to Enrubio (200)")
+  - Band/mode endorsement progress (you have 20m+CW; working 40m FT8 would
+    be a new endorsement)
+  - Progress bar in the UI header or a sidebar panel
+
+  **What requires auth (worked parks list):**
+  The `/user/logbook` endpoint requires authentication. Without it we cannot
+  highlight "you haven't worked this park before" on individual spots.
+
+  **Authentication findings:**
+  - POTA uses AWS Cognito with PKCE OAuth2 flow
+  - Login URL: `parksontheair.auth.us-east-2.amazoncognito.com`
+  - Cognito client ID: `7hluqct0n2nckib7i7sd5753oa`
+  - PKCE means we cannot POST credentials directly — requires browser redirect
+    and a pre-registered callback URI
+  - POTA has an **Application Key** system for third-party developers:
+    GET `/session` with an Application Key returns a Session Key for
+    authenticated API calls
+  - POTA API terms: "does not permit use of the API in an application
+    containing any form of 3rd party tracking"
+  - **Action required:** Contact POTA team to request an Application Key for
+    PotaSpotHunter. App is open source, hunter-focused, no tracking — good
+    candidate for approval.
+
+  **Fallback without Application Key:**
+  - ADIF import — user exports their full log from pota.app as ADIF, imports
+    into PotaSpotHunter. Parse to extract all hunted park refs. One-time
+    setup, works for any logger. Re-import to refresh.
+  - MLDX log mining — query `every qso` via AppleScript and extract park refs
+    from the `note` field (set to "POTA US-1234" on every tune). Local,
+    no auth, MLDX users only.
+
+  **UI ideas:**
+  - Callsign entry at startup (optional, dismissible, stored in localStorage)
+  - Progress indicator in header: "🏆 Enrubio: 135/200 parks"
+  - Spot rows: dim or badge parks already worked (requires auth or ADIF import)
+  - New park highlight: green glow or ★ on park ref for parks not yet worked
   MLDX. Or ping all backends silently and only error if ALL fail.
 
 - **Persist filter settings** — remember band/mode filter and rig selection
