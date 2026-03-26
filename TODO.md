@@ -330,6 +330,41 @@ GET /lookup_calls?calls=W1AW,K8BSR,...
   - MLDX log mining — extract park refs from `note` field of MLDX QSOs
     (set to "POTA US-1234" on every tune). MLDX users only.
 
+  **Additional awards trackable without auth:**
+
+  These can be highlighted on spot rows in real time based on current time,
+  park location, and the user's profile — no logbook access needed.
+
+  | Award | Rule | How to detect |
+  |-------|------|---------------|
+  | New Years Hunter | Hunt Jan 1–7 (UTC) | Is today Jan 1–7? Flag all spots |
+  | Early Shift Hunter | Hunt during Early Shift (~02:00 UTC ±1hr/15° lon) | Calculate shift window from park longitude; flag if active now |
+  | Late Shift Hunter | Hunt during Late Shift (~18:00 UTC ±1hr/15° lon) | Same calculation; flag if active now |
+  | Support Your Parks Hunter | Hunt during 3rd weekend of Jan/Apr/Jul/Oct | Is today that weekend? Flag all spots |
+  | DX Hunter | Hunt activators in DX entities (increments of 5) | Flag spots where reference prefix ≠ user's home entity |
+  | Six Pack Hunter | 1 QSO from 6 different parks on 6m | Flag all 6m spots |
+  | N1CC Hunter | QSOs from 10 parks on 10 different bands | Flag spots on bands not yet in user's endorsements |
+  | Repeat Offender (Oasis) | 20 hunter QSOs from same single park | Needs worked_cache or MLDX log |
+  | Operator-to-Operator | 50 QSOs with same activator | Partially covered by worked_cache count |
+
+  Early/Late Shift formula (from POTA docs):
+  - Early Shift start (UTC) = 2 − (park_longitude / 15), rounded to nearest hour
+  - Late Shift start (UTC) = 18 − (park_longitude / 15), rounded to nearest hour
+  - Early Shift duration: 6 hours; Late Shift duration: 8 hours
+  - Park longitude is already in the spot data
+
+  **UI treatment for award hints:**
+  Small colored pill or icon on the spot row when a spot qualifies for an
+  active award opportunity. Examples:
+  - 🌙 Late Shift window active for this park right now
+  - 🎆 New Years week
+  - 🎪 Support Your Parks event weekend
+  - 🌍 DX entity (counts toward DX Hunter)
+  - 📻 6m spot (counts toward Six Pack)
+  - 🆕 Band not yet in your endorsements (counts toward N1CC)
+
+  Hover text explains which award and why.
+
   **What's available without auth (public API):**
   ```
   GET https://api.pota.app/profile/<call>
