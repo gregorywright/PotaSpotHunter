@@ -318,11 +318,13 @@ GET /lookup_calls?calls=W1AW,K8BSR,...
   - POTA API docs mention an "Application Key" system but docs are incomplete
   - POTA API terms prohibit use in apps with third-party tracking
 
-  **⚠️ Action item: reach out to POTA before doing anything with auth.**
-  Introduce PotaSpotHunter, ask if they have a supported path for third-party
-  desktop apps to access authenticated user data. Don't attempt to work around
-  the auth flow without their knowledge. Contact via POTA Slack or support page:
-  https://docs.pota.app/docs/support.html
+  **⚠️ POTA API status (confirmed 2026-03-26):**
+  The POTA APIs were built solely to separate their own front-end from
+  back-end. They have no public documentation, no auth/application key
+  program, and cannot guarantee API stability or continued availability.
+  Use public endpoints as best-effort only. No authenticated API access
+  is possible. Auth-free fallbacks (ADIF import, MLDX log mining) are
+  the only path for worked parks data.
 
   **Auth-free fallback for worked parks:**
   - ADIF import — user exports log from pota.app, imports into PotaSpotHunter.
