@@ -1451,13 +1451,15 @@ function render() {
     // spotId changes each time a spot is re-posted; callsign+band+mode+ref+date
     // correctly identifies the same scoring opportunity across refreshes.
     const isNew    = newSpotIds.has(id);
+    const hints    = spotAwardHints(s);
+    const hintHTML = renderHintIcons(hints);
 
     return `<tr data-id="${id}" data-freq="${esc(freqKhz)}" data-mode="${esc(modeRaw)}"
                 data-callsign="${esc(callsign)}" data-ref="${esc(ref)}" data-park="${esc(park)}">
       <td class="freq">${esc(freqKhz)}</td>
       <td class="mode">${esc(modeDisp)}</td>
       <td class="callsign"><a class="spot-link" href="https://pota.app/#/profile/${esc(callsign)}" target="_blank" title="POTA profile: ${esc(callsign)}">${esc(callsign)}</a></td>
-      <td class="ref"><a class="spot-link" href="https://pota.app/#/park/${esc(ref)}" target="_blank" title="POTA park: ${esc(ref)}">${esc(ref)}</a></td>
+      <td class="ref"><a class="spot-link" href="https://pota.app/#/park/${esc(ref)}" target="_blank" title="POTA park: ${esc(ref)}">${esc(ref)}</a>${hintHTML ? ' '+hintHTML : ''}</td>
       <td class="park" title="${esc(park)}">${esc(park.length > 36 ? park.slice(0,34)+'…' : park)}</td>
       <td class="loc" title="${esc(loc)}">${esc(fmtLocation(loc))}</td>
       <td class="age ${age.cls}" title="${fmtUTC(spotTime)}">${age.text}</td>
@@ -2414,7 +2416,80 @@ function showProxyDownError() {
   });
 }
 
-// ── Awards tracking ──────────────────────────────────────
+// ── Time-based award hint helpers ────────────────────────
+
+// Returns a Set of hint codes that apply to a spot right now.
+// Codes: 'lateshift', 'earlyshift', 'newyears', 'supportyourparks', 'newendo'
+//
+// Early Shift: 6-hour window starting at (2 - lon/15) UTC, rounded to hour
+// Late Shift:  8-hour window starting at (18 - lon/15) UTC, rounded to hour
+// Source: https://docs.pota.app/docs/awards.html
+function spotAwardHints(spot) {
+  const hints = new Set();
+  const now = new Date();
+  const utcH = now.getUTCHours() + now.getUTCMinutes() / 60;
+  const utcMonth = now.getUTCMonth() + 1; // 1-12
+  const utcDay   = now.getUTCDate();
+  const utcDow   = now.getUTCDay(); // 0=Sun
+
+  // New Years Hunter: Jan 1–7
+  if (utcMonth === 1 && utcDay >= 1 && utcDay <= 7) hints.add('newyears');
+
+  // Support Your Parks: 3rd full weekend of Jan/Apr/Jul/Oct
+  // 3rd weekend = Sat/Sun where the Saturday is the 15th–21st of the month
+  if ([1, 4, 7, 10].includes(utcMonth) && (utcDow === 0 || utcDow === 6)) {
+    const sat = utcDow === 6 ? utcDay : utcDay - 1;
+    if (sat >= 15 && sat <= 21) hints.add('supportyourparks');
+  }
+
+  // Shift awards — need park longitude
+  const lon = spot.longitude;
+  if (lon != null) {
+    const earlyStart = Math.round(2  - lon / 15);
+    const lateStart  = Math.round(18 - lon / 15);
+    const eStart = ((earlyStart % 24) + 24) % 24;
+    const lStart = ((lateStart  % 24) + 24) % 24;
+    const inWindow = (start, duration) => {
+      const end = (start + duration) % 24;
+      return start < end
+        ? utcH >= start && utcH < end
+        : utcH >= start || utcH < end;
+    };
+    if (inWindow(eStart, 6)) hints.add('earlyshift');
+    if (inWindow(lStart, 8)) hints.add('lateshift');
+  }
+
+  // Endorsement hint — only if hunter profile is loaded
+  if (hunterProfile) {
+    const awards = hunterProfile.awards ?? [];
+    // Find highest earned hunter tier
+    const parks = hunterProfile.stats?.hunter?.parks ?? 0;
+    let currentTierName = null;
+    for (const t of AWARD_TIERS) {
+      if (parks >= t.parks) currentTierName = t.name;
+    }
+    if (currentTierName) {
+      const entry = awards.find(a => a.name === currentTierName);
+      const endorsements = entry ? entry.endorsements : [];
+      const band = bandOf(spot.frequency);
+      if (band && !endorsements.includes(band + 'M')) hints.add('newendo');
+    }
+  }
+
+  return hints;
+}
+
+// Render hint icons as a small HTML string with tooltip
+function renderHintIcons(hints) {
+  const s = 'style="margin-left:5px"';
+  const icons = [];
+  if (hints.has('lateshift'))        icons.push(`<span ${s} title="Late Shift window active — counts toward Late Shift Hunter award">🌙</span>`);
+  if (hints.has('earlyshift'))       icons.push(`<span ${s} title="Early Shift window active — counts toward Early Shift Hunter award">🌅</span>`);
+  if (hints.has('newyears'))         icons.push(`<span ${s} title="New Years week (Jan 1–7) — counts toward New Years Hunter award">🎆</span>`);
+  if (hints.has('supportyourparks')) icons.push(`<span ${s} title="Support Your Parks event weekend — counts toward Support Your Parks Hunter award">🎪</span>`);
+  if (hints.has('newendo'))          icons.push(`<span ${s} title="You have no endorsement on this band yet — working this spot could help earn one">✨</span>`);
+  return icons.join('');
+}
 
 // Award tier ladder — hunter parks required for each tier.
 const AWARD_TIERS = [
@@ -2550,6 +2625,7 @@ document.getElementById('awards-callsign-save').addEventListener('click', async 
     hunterProfile = null;
     renderAwardsBadge();
     renderAwardsPopover();
+    render();
     return;
   }
   localStorage.setItem('hunterCallsign', call);
@@ -2558,6 +2634,7 @@ document.getElementById('awards-callsign-save').addEventListener('click', async 
   hunterProfile = await loadHunterProfile(call);
   renderAwardsBadge();
   renderAwardsPopover();
+  render();
 });
 
 // Also save on Enter key in the input
@@ -2589,6 +2666,7 @@ startupProxyCheck();
     renderAwardsBadge();  // show "🏆 W7GFW · …" while loading
     hunterProfile = await loadHunterProfile(call);
     renderAwardsBadge();
+    render();
   }
 })();
 </script>

@@ -129,10 +129,15 @@ and stores it as `APP_VERSION`. It is served via the `/version` HTTP route.
 
 ### Header row
 ```
-POTA ► SPOT HUNTER v1.4.0   [status line]                         [⊕ Map]
+POTA ► SPOT HUNTER v1.4.0   [status line]          [🏆 W7GFW · Arizona Agave] [⊕ Map]
 ```
 The version number is fetched from the proxy `/version` endpoint at startup
 and injected into `#version-label` — it is never hardcoded in the HTML.
+
+The 🏆 award badge button shows "Set callsign" when no callsign is stored,
+or "🏆 <CALL> · <tier>" when a callsign is set. Clicking it opens a popover
+with a callsign input, progress bar, and endorsement list. Callsign is stored
+in localStorage. Saving an empty callsign clears it.
 
 ### Toolbar (wraps gracefully; each label+control is an atomic flex unit)
 ```
@@ -201,6 +206,7 @@ MacLoggerDX further converts to MHz for AppleScript.
 | `tableRatio` | number | Fraction of split-area given to table (0.25–0.75) |
 | `mapIsOpen` | boolean | Whether map panel is visible |
 | `autoRefreshTimer` | interval id | null when manual-only |
+| `hunterProfile` | Object\|null | Cached response from `api.pota.app/profile/<call>`. Null until callsign is set and profile fetched. Used by award badge, popover, and endorsement hints. |
 
 ---
 

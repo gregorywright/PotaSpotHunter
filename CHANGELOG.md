@@ -1,4 +1,21 @@
 ## [Unreleased]
+### Added
+- **Award tracking badge** — a 🏆 button in the header lets hunters enter
+  their callsign (stored in localStorage). Once set, the badge shows the
+  hunter's current award tier (e.g. "🏆 W7GFW · Arizona Agave"). Clicking
+  the badge opens a popover showing current tier, parks count, progress bar
+  toward the next tier, and band/mode endorsements earned on the current tier.
+  Callsign can be cleared by saving an empty value.
+- **Time-based award hint icons** on spot rows — small emoji icons appear
+  next to the park reference when a spot qualifies for an active award
+  opportunity: 🌙 Late Shift, 🌅 Early Shift, 🎆 New Years week (Jan 1–7),
+  🎪 Support Your Parks event weekend. Shift windows are calculated from
+  the park's longitude per the POTA award rules. Icons update immediately
+  when the hunter callsign is set or cleared.
+- **Endorsement hint icon** (✨) on spot rows — shown when the hunter's
+  callsign is set and the spot's band is not yet in the hunter's endorsements
+  for their current award tier. Indicates a potential new endorsement
+  opportunity. Requires callsign to be set.
 ### Documentation
 - Updated screenshots and demo GIF to reflect current UI.
 
