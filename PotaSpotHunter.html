@@ -791,6 +791,83 @@
     color: #aad4ff;
   }
 
+  /* Awards badge button */
+  #btn-awards {
+    border-color: #5a4a1a;
+    color: var(--amber);
+    font-size: 12px;
+    white-space: nowrap;
+  }
+  #btn-awards:hover { background: #1a1200; border-color: var(--amber); }
+  #btn-awards.active { background: #1a1200; border-color: var(--amber); }
+
+  /* Awards popover */
+  #awards-popover {
+    display: none;
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 0;
+    width: 420px;
+    background: #1a1e1a;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 14px;
+    z-index: 200;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+    font-size: 15px;
+  }
+  #awards-popover.open { display: block; }
+  #awards-popover h3 {
+    margin: 0 0 10px;
+    font-size: 15px;
+    color: var(--amber);
+    font-family: var(--mono);
+  }
+  #awards-callsign-row {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 12px;
+  }
+  #awards-callsign-input {
+    flex: 1;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-family: var(--mono);
+    font-size: 15px;
+    text-transform: uppercase;
+  }
+  #awards-callsign-input:focus { outline: none; border-color: var(--amber); }
+  #awards-callsign-save {
+    padding: 4px 10px;
+    font-size: 14px;
+  }
+  #awards-progress { line-height: 2; font-size: 14px; }
+  .awards-tier-name { color: var(--amber); font-weight: bold; font-size: 15px; }
+  .awards-progress-bar {
+    height: 6px;
+    background: var(--border);
+    border-radius: 3px;
+    margin: 4px 0 8px;
+    overflow: hidden;
+  }
+  .awards-progress-fill {
+    height: 100%;
+    background: var(--amber);
+    border-radius: 3px;
+    transition: width 0.3s;
+  }
+  .awards-endorsements {
+    margin-top: 8px;
+    font-size: 13px;
+    color: var(--text-dim);
+    line-height: 1.8;
+  }
+  .awards-endorsements span.have { color: var(--green); }
+  .awards-endorsements span.need { color: var(--text-dim); }
+
   /* Highlighted marker for selected row */
   .marker-selected {
     filter: drop-shadow(0 0 6px rgba(57,255,106,0.9));
@@ -851,6 +928,20 @@
     <div class="logo">POTA <span>&#9658;</span> SPOT HUNTER<span id="version-label"></span></div>
     <div id="status-line">Initialising...</div>
     <div id="header-actions">
+      <div style="position:relative">
+        <button id="btn-awards" title="Award tracking">🏆 Set callsign</button>
+        <div id="awards-popover">
+          <h3>🏆 Hunter Awards</h3>
+          <div id="awards-callsign-row">
+            <input id="awards-callsign-input" type="text" maxlength="12"
+              placeholder="Your callsign" autocomplete="off" spellcheck="false">
+            <button id="awards-callsign-save">Save</button>
+          </div>
+          <div id="awards-progress">
+            <span style="color:var(--text-dim);font-size:12px">Enter your callsign to see award progress.</span>
+          </div>
+        </div>
+      </div>
       <button id="btn-map" title="Toggle world map">&#9783; Map</button>
     </div>
   </header>
@@ -2323,12 +2414,183 @@ function showProxyDownError() {
   });
 }
 
+// ── Awards tracking ──────────────────────────────────────
+
+// Award tier ladder — hunter parks required for each tier.
+const AWARD_TIERS = [
+  { name: 'Bronze Hunter',                    parks: 10   },
+  { name: 'Silver Hunter',                    parks: 20   },
+  { name: 'Gold Hunter',                      parks: 30   },
+  { name: 'Platinum Hunter',                  parks: 40   },
+  { name: 'Diamond Hunter',                   parks: 50   },
+  { name: 'Sapphire Hunter',                  parks: 75   },
+  { name: 'Arizona Agave Hunter',             parks: 100  },
+  { name: 'Enrubio Hunter',                   parks: 200  },
+  { name: 'Ouachita Mountain Goldenrod Hunter', parks: 300 },
+  { name: 'Stenogyne Kanehoana Hunter',       parks: 400  },
+  { name: "Howell's Spectacular Thelypody Hunter", parks: 500 },
+  { name: 'Texas Wild Rice Hunter',           parks: 600  },
+  { name: "Wiggin's Acalypha Hunter",         parks: 700  },
+  { name: 'Georgia Aster Hunter',             parks: 800  },
+  { name: 'Rafflesia Flower Hunter',          parks: 900  },
+  { name: 'Western Prairie Fringed Orchid Hunter', parks: 1000 },
+];
+
+let hunterProfile = null;  // cached profile from api.pota.app/profile/<call>
+
+async function loadHunterProfile(callsign) {
+  try {
+    const r = await fetch(`https://api.pota.app/profile/${encodeURIComponent(callsign)}`);
+    if (!r.ok) return null;
+    return await r.json();
+  } catch (e) {
+    return null;
+  }
+}
+
+function renderAwardsBadge() {
+  const btn = document.getElementById('btn-awards');
+  const call = localStorage.getItem('hunterCallsign');
+  if (!call) {
+    btn.textContent = '🏆 Set callsign';
+    return;
+  }
+  if (!hunterProfile) {
+    btn.textContent = `🏆 ${call} · …`;
+    return;
+  }
+  const parks = hunterProfile.stats?.hunter?.parks ?? 0;
+  // Find highest earned tier
+  let tierName = 'Unranked';
+  for (const t of AWARD_TIERS) {
+    if (parks >= t.parks) tierName = t.name.replace(' Hunter', '');
+  }
+  btn.textContent = `🏆 ${call} · ${tierName}`;
+}
+
+function renderAwardsPopover() {
+  const el = document.getElementById('awards-progress');
+  const call = localStorage.getItem('hunterCallsign');
+  if (!call || !hunterProfile) {
+    el.innerHTML = '<span style="color:var(--text-dim);font-size:12px">Enter your callsign to see award progress.</span>';
+    return;
+  }
+
+  const parks = hunterProfile.stats?.hunter?.parks ?? 0;
+  const qsos  = hunterProfile.stats?.hunter?.qsos  ?? 0;
+
+  // Find current and next tier
+  let currentTier = null, nextTier = null;
+  for (let i = 0; i < AWARD_TIERS.length; i++) {
+    if (parks >= AWARD_TIERS[i].parks) currentTier = AWARD_TIERS[i];
+    else if (!nextTier) nextTier = AWARD_TIERS[i];
+  }
+
+  // Progress bar
+  const prevParks = currentTier ? currentTier.parks : 0;
+  const nextParks = nextTier ? nextTier.parks : (currentTier ? currentTier.parks : 10);
+  const pct = nextTier ? Math.round(((parks - prevParks) / (nextParks - prevParks)) * 100) : 100;
+
+  // Endorsements from profile awards array
+  const earnedAwards = hunterProfile.awards ?? [];
+  const currentAwardEntry = earnedAwards.find(a => currentTier && a.name === currentTier.name);
+  const endorsements = currentAwardEntry ? currentAwardEntry.endorsements : [];
+  const allBands = ['160M','80M','60M','40M','30M','20M','17M','15M','12M','10M','6M','2M'];
+  const allModes = ['CW','DATA','PHONE','FT8','FT4'];
+
+  const endoHTML = [...allBands, ...allModes].map(e => {
+    const have = endorsements.includes(e);
+    return `<span class="${have ? 'have' : 'need'}" title="${have ? 'Earned' : 'Not yet earned'}">${e}</span>`;
+  }).join(' ');
+
+  el.innerHTML = `
+    <div style="margin-bottom:6px">
+      <span style="color:var(--text-dim)">Hunter parks: </span>
+      <strong style="color:var(--green)">${parks}</strong>
+      <span style="color:var(--text-dim)"> · QSOs: ${qsos}</span>
+    </div>
+    ${currentTier ? `<div class="awards-tier-name">${currentTier.name}</div>` : '<div style="color:var(--text-dim)">No tier yet</div>'}
+    ${nextTier ? `
+      <div style="color:var(--text-dim);margin-top:2px">
+        Next: ${nextTier.name} (${nextTier.parks} parks) — ${nextTier.parks - parks} to go
+      </div>
+      <div class="awards-progress-bar">
+        <div class="awards-progress-fill" style="width:${pct}%"></div>
+      </div>
+    ` : '<div style="color:var(--green);margin-top:4px">Maximum standard tier reached!</div>'}
+    ${currentTier ? `
+      <div class="awards-endorsements">
+        <span style="color:var(--text-dim)">Endorsements on ${currentTier.name.replace(' Hunter','')}:</span><br>
+        ${endoHTML}
+      </div>
+    ` : ''}
+  `;
+}
+
+// Toggle popover open/close
+document.getElementById('btn-awards').addEventListener('click', e => {
+  e.stopPropagation();
+  const pop = document.getElementById('awards-popover');
+  const btn = document.getElementById('btn-awards');
+  const isOpen = pop.classList.toggle('open');
+  btn.classList.toggle('active', isOpen);
+  if (isOpen) {
+    renderAwardsPopover();
+    document.getElementById('awards-callsign-input').value =
+      localStorage.getItem('hunterCallsign') ?? '';
+  }
+});
+
+// Save callsign and reload profile
+document.getElementById('awards-callsign-save').addEventListener('click', async () => {
+  const input = document.getElementById('awards-callsign-input');
+  const call = input.value.trim().toUpperCase();
+  if (!call) {
+    localStorage.removeItem('hunterCallsign');
+    hunterProfile = null;
+    renderAwardsBadge();
+    renderAwardsPopover();
+    return;
+  }
+  localStorage.setItem('hunterCallsign', call);
+  hunterProfile = null;
+  renderAwardsBadge();
+  hunterProfile = await loadHunterProfile(call);
+  renderAwardsBadge();
+  renderAwardsPopover();
+});
+
+// Also save on Enter key in the input
+document.getElementById('awards-callsign-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') document.getElementById('awards-callsign-save').click();
+});
+
+// Close popover when clicking outside
+document.addEventListener('click', e => {
+  const pop = document.getElementById('awards-popover');
+  if (pop.classList.contains('open') &&
+      !document.getElementById('btn-awards').parentElement.contains(e.target)) {
+    pop.classList.remove('open');
+    document.getElementById('btn-awards').classList.remove('active');
+  }
+});
+
 // Kick off the startup check.  Everything else waits for this.
 // Note: the rig dropdown defaults to "none" (set in the HTML), so
 // startupProxyCheck only needs to ping mldx — it does not need to
 // seed any previous-value tracker since pingRigBackend always falls
 // back to 'none' on error rather than a stored previous value.
 startupProxyCheck();
+
+// Load hunter profile on startup if callsign is stored
+(async () => {
+  const call = localStorage.getItem('hunterCallsign');
+  if (call) {
+    renderAwardsBadge();  // show "🏆 W7GFW · …" while loading
+    hunterProfile = await loadHunterProfile(call);
+    renderAwardsBadge();
+  }
+})();
 </script>
 </body>
 </html>
