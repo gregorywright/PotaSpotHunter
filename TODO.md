@@ -447,3 +447,60 @@ GET /lookup_calls?calls=W1AW,K8BSR,...
 
 - **Mobile layout** — the table is hard to use on a phone; a card-based
   layout for narrow viewports would help.
+
+---
+
+## [PLANNED] Build System — Split Source Files
+
+Refactor `PotaSpotHunter.html` into separate source files for easier
+contribution by developers using traditional (non-AI) methods.
+
+### Source layout
+```
+src/
+  index.html    ← HTML shell with placeholders
+  style.css     ← all CSS
+  app.js        ← all JavaScript
+build.py        ← combines src/ into PotaSpotHunter.html
+```
+
+### How it works
+- `build.py` inlines `style.css` into a `<style>` block and `app.js` into
+  a `<script>` block, producing the single-file `PotaSpotHunter.html`
+- `PotaSpotHunter.html` becomes a build artifact — added to `.gitignore`
+- The GitHub Actions release workflow runs `python3 build.py` before
+  packaging the ZIP, so the release artifact is still a single HTML file
+- Contributors edit only `src/` files; users still get the same
+  single-file download experience
+
+### Local dev workflow
+```bash
+python3 build.py && open PotaSpotHunter.html
+```
+Optionally add a file-watcher mode to `build.py` for auto-rebuild on save.
+
+### Notes
+- No npm, no bundler, no third-party dependencies — build.py is pure Python
+- A git pre-commit hook can enforce that the generated file is up to date
+- Do this before the codebase grows much larger if outside contributors
+  are a goal
+
+### Why we don't just split the file and call it done
+Naively splitting into `index.html` + `style.css` + `app.js` and committing
+all three breaks the user experience:
+
+- **`file://` loading is restricted** — browsers (especially Safari) block
+  loading external CSS and JS from a `file://` HTML page for security
+  reasons. Users who open the HTML directly without the proxy would get a
+  broken, unstyled page.
+- **Files must stay together** — if a user downloads and unzips the release,
+  they now have three files to keep in the same folder. Easy to accidentally
+  move just the HTML and wonder why it's broken.
+- **The proxy opens the file directly** — `PotaProxy.py` launches the browser
+  with a `file://` URL. Serving the split files over HTTP from the proxy
+  would work around the `file://` restriction, but adds complexity to the
+  proxy and changes the startup model.
+
+The build-script approach avoids all of these: source is split for
+developers, but the release artifact and the file the proxy opens are still
+a single self-contained HTML file.
