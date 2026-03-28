@@ -97,10 +97,23 @@ jobs:
           notes = match.group(1).strip()
           print(f"Extracted {len(notes)} characters of release notes for v{version}")
 
+          quick_start = """\
+## Quick Start
+
+1. **Download and unzip** `PotaSpotHunter-v{version}.zip`
+2. **Start the proxy** — open a terminal, navigate to the unzipped folder, and run `python3 PotaProxy.py`. The proxy opens your browser automatically. No radio required — the **Rig Control** dropdown defaults to **None**.
+3. **Click-to-tune** *(optional)* — start MacLoggerDX, flrig, or rigctld, select it from the **Rig Control** dropdown, then click any spot row or map marker to tune your radio.
+
+> Requires Python 3.6+.
+
+---
+
+""".format(version=version)
+
           # Write to a file so the next step can read it cleanly
           # (avoids shell quoting issues with multiline strings)
           with open("release_notes.md", "w", encoding="utf-8") as f:
-              f.write(notes)
+              f.write(quick_start + notes)
           PYEOF
         env:
           RELEASE_VERSION: ${{ steps.version.outputs.version }}
