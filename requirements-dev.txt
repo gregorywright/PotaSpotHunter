@@ -1,0 +1,3 @@
+# Developer dependencies — not required to run the app.
+# Install with: pip install -r requirements-dev.txt
+pytest

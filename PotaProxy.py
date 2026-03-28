@@ -637,9 +637,6 @@ class MacLoggerDXBackend(RigBackend):
                 f'delay {self.LOOKUP_DELAY}',
             ]
         if note:
-            # AppleScript string literals cannot contain non-ASCII characters
-            # or embedded double-quotes — both cause a syntax error (-2741).
-            # Strip them before injecting into the script.
             safe_note = note.encode('ascii', errors='ignore').decode('ascii').replace('"', '').strip()
             if safe_note:
                 script_lines.append(f'setNOTE "{safe_note}"')
@@ -656,12 +653,15 @@ class MacLoggerDXBackend(RigBackend):
 
         Values are passed as pre-built AppleScript string literals so
         that no user data ever touches the shell command string itself.
+        Non-ASCII characters and embedded double-quotes are stripped from
+        every line — both cause AppleScript syntax error -2741.
         Source: https://scriptingosx.com/2022/05/launching-scripts-4-applescript-from-shell-script/
         """
         import subprocess
         cmd = ["/usr/bin/osascript"]
         for line in lines:
-            cmd += ["-e", line]
+            safe = line.encode('ascii', errors='ignore').decode('ascii')
+            cmd += ["-e", safe]
 
         result = subprocess.run(
             cmd,

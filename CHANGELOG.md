@@ -1,4 +1,20 @@
 ## [Unreleased]
+### Added
+- Unit test suite for `PotaProxy.py` backends using pytest (`python3 build.py test`).
+  Tests cover MacLoggerDX note sanitization (ASCII stripping, quote removal,
+  empty note handling) and rigctld command format (split-off command, frequency,
+  mode mapping). No radio software required to run tests.
+- `CONTRIBUTING.md` with setup and test instructions for new contributors.
+- `requirements-dev.txt` listing pytest as the only dev dependency.
+- `build.py` developer utility — currently supports `python3 build.py test`.
+
+### Fixed
+- Auto-refresh interval dropdown had no change event listener — the timer
+  always ran at the startup default of 2 minutes regardless of selection.
+- MacLoggerDX crashed with osascript error -2741 on spots whose park name
+  contained non-ASCII characters (Cyrillic, Chinese, etc.) or embedded
+  double-quotes. The proxy now strips both before building the AppleScript.
+
 
 ## [1.5.0] - 2026-03-27
 ### Added
