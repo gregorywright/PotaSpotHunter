@@ -1,4 +1,19 @@
 ## [Unreleased]
+
+## [1.6.0] - 2026-03-28
+### Added
+- **Park type column** — a new "Type" column between Park Ref and Park Name
+  shows an emoji indicating the park type, fetched in the background from
+  `api.pota.app/park/<ref>` after each spot refresh. ⏳ shown while
+  fetching, then the resolved emoji (or ❓ for unrecognised types). Clicking
+  the column header sorts by park type in a meaningful order (federal →
+  state → other). A 200ms debounced render fires as data arrives so icons
+  appear dynamically without waiting for the next auto-refresh.
+
+  Park type emoji: 🏛 National Park · 🌲 National Forest · 🗿 Monument ·
+  🦅 National Wildlife · 🪨 BLM/Other Federal · 🏕 State Park · 🌳 State
+  Forest · 🥾 State Trail · 🏖 State Beach · 🎯 Recreation · 🦌 Wildlife
+  Mgmt · 🌿 Nature Reserve · 🌾 Wetland · 🪧 Historic · ❓ Unknown
 ### Changed
 - Release notes now include a Quick Start section at the top so users
   see setup instructions directly on the GitHub release page.

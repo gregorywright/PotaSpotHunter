@@ -146,6 +146,14 @@ release time. Missing changelog entries have caused documentation gaps.
 At release time: rename `[Unreleased]` to `## [X.Y.Z] - YYYY-MM-DD`, add
 new empty `[Unreleased]` at top, bump `VERSION`, update `AGENTS.md`.
 
+### Park type classification — two functions, not one
+`classifyParkType(parktypeDesc)` and `parkTypeEmoji(type)` are kept as
+separate pure functions. `classifyParkType` maps raw API strings to a
+canonical type key (e.g. `'national_park'`); `parkTypeEmoji` maps keys to
+emoji. This separation allows `classifyParkType` to be unit tested without
+any display concerns. Do NOT merge them into a single
+`parktypeDescToEmoji()` function.
+
 ---
 
 ## Current state of the UI
@@ -181,10 +189,16 @@ JS8, PSK, OLIVIA). All five options are mutually exclusive. The value in the
 `<select>` for Other Digital is `"DIGITAL"`.
 
 ### Spot table columns
-Freq (kHz) | Mode | Callsign | Park Ref | Park Name | Location | Last Heard | New | Tune button removed — click row to tune
+Freq (kHz) | Mode | Callsign | Park Ref | Type | Park Name | Location | Last Heard | New | Tune button removed — click row to tune
 
 Award hint icons (🌙🌅🎆🎪✨) appear inline after the park ref link in the
 Park Ref cell. See `spotAwardHints()` and `renderHintIcons()` for logic.
+
+The Type column shows a park type emoji fetched in the background from
+`api.pota.app/park/<ref>`. ⏳ while in-flight, resolved emoji or ❓ after.
+`classifyParkType(parktypeDesc)` maps API strings to canonical type keys;
+`parkTypeEmoji(type)` maps keys to emoji. Both are pure functions — keep
+them separate so `classifyParkType` can be unit tested independently.
 
 ### Map panel
 - Leaflet.js + OpenStreetMap (no API key)
@@ -235,6 +249,8 @@ MacLoggerDX further converts to MHz for AppleScript.
 | `mapIsOpen` | boolean | Whether map panel is visible |
 | `autoRefreshTimer` | interval id | null when manual-only |
 | `hunterProfile` | Object\|null | Cached response from `api.pota.app/profile/<call>`. Null until callsign is set and profile fetched. Used by award badge, popover, and endorsement hints. |
+| `parkTypeCache` | Object | Maps park ref → parktypeDesc string from `api.pota.app/park/<ref>`. `undefined` = not fetched, `null` = in-flight, `''` = failed/unknown, string = resolved. Never cleared. |
+| `parkRenderTimer` | timeout id | Debounce timer for render() triggered by park type fetch completions. 200ms debounce coalesces rapid completions. |
 
 ---
 
@@ -329,7 +345,7 @@ git push origin mainline --tags
 
 ## Current version
 
-`VERSION` file contains `1.5.1`. The next release will be v1.6.0 (or v1.5.2
+`VERSION` file contains `1.6.0`. The next release will be v1.7.0 (or v1.6.1
 if the next changes are patch-level). Unreleased changes are tracked in
 `CHANGELOG.md` under `[Unreleased]`.
 

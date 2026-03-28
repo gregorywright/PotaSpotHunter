@@ -411,6 +411,7 @@
   td.callsign { color: var(--text-bright); font-size: 13px; font-weight: bold; letter-spacing: 0.06em; }
   td.ref     { color: #7ab4ff; font-size: 11px; }
   td.park    { color: var(--text); max-width: 240px; overflow: hidden; text-overflow: ellipsis; font-family: var(--ui); font-size: 12px; }
+  td.parktype { text-align: center; font-size: 14px; width: 28px; min-width: 28px; }
   td.loc     { color: var(--text-dim); font-size: 11px; }
   td.age     { font-size: 11px; }
   td.age.fresh  { color: var(--green); }
@@ -1036,6 +1037,7 @@
           <th data-col="mode">Mode</th>
           <th data-col="callsign">Callsign</th>
           <th data-col="ref">Park Ref</th>
+          <th data-col="parktype" title="Park type — click to sort by type">Type</th>
           <th data-col="park">Park Name</th>
           <th data-col="loc">Location</th>
           <th data-col="time">Last Heard</th>
@@ -1170,6 +1172,153 @@ let activeSpotId = null;        // spotId of the currently active spot — drive
 // operator can tune up through the band.
 let sortCol = 'freq';           // active sort column
 let sortDir = 'asc';            // 'asc' | 'desc'
+
+// ── Park type classification ─────────────────────────────
+//
+// Two pure functions kept separate so classifyParkType() can be unit-tested
+// independently of any display concerns.
+//
+// classifyParkType(parktypeDesc) → canonical type string
+//   Input:  parktypeDesc from api.pota.app/park/<ref>  (e.g. "National Park")
+//   Output: one of the PARK_TYPE_ORDER keys below, or 'unknown'
+//
+// parkTypeEmoji(type) → display emoji for that type
+//
+// Sort order is defined by PARK_TYPE_ORDER so clicking the Type column
+// groups parks in a meaningful sequence (federal → state → other).
+// Array.prototype.sort() in modern JS engines is stable, so within each
+// type group the existing sort order (e.g. frequency) is preserved.
+
+const PARK_TYPE_ORDER = [
+  'national_park',
+  'national_forest',
+  'national_monument',
+  'national_wildlife',
+  'national_other',
+  'state_park',
+  'state_forest',
+  'state_trail',
+  'state_beach',
+  'recreation',
+  'wildlife',
+  'nature_reserve',
+  'wetland',
+  'historic',
+  'unknown',
+];
+
+const PARK_TYPE_EMOJI = {
+  national_park:      '🏛',
+  national_forest:    '🌲',
+  national_monument:  '🗿',
+  national_wildlife:  '🦅',
+  national_other:     '🪨',
+  state_park:         '🏕',
+  state_forest:       '🌳',
+  state_trail:        '🥾',
+  state_beach:        '🏖',
+  recreation:         '🎯',
+  wildlife:           '🦌',
+  nature_reserve:     '🌿',
+  wetland:            '🌾',
+  historic:           '🪧',
+  unknown:            '❓',
+};
+
+function classifyParkType(parktypeDesc) {
+  if (!parktypeDesc) return 'unknown';
+  const t = parktypeDesc.toLowerCase();
+  if (t.includes('national park') ||
+      t.includes('national historical park') ||
+      t.includes('national historic site') ||
+      t.includes('national battlefield') ||
+      t.includes('national seashore') ||
+      t.includes('national heritage'))              return 'national_park';
+  if (t.includes('world heritage'))                 return 'historic';
+  if (t.includes('national forest'))             return 'national_forest';
+  if (t.includes('national monument') ||
+      t.includes('natural monument'))            return 'national_monument';
+  if (t.includes('national wildlife') ||
+      t.includes('national wild and scenic') ||
+      t.includes('national scenic trail'))       return 'national_wildlife';
+  if (t.includes('blm') ||
+      t.includes('national'))                    return 'national_other';
+  if (t.includes('state park') ||
+      t.includes('provincial park') ||
+      t.includes('state historical park') ||
+      t.includes('state historic site') ||
+      t.includes('state natural area') ||
+      t.includes('state nature preserve') ||
+      t.includes('state preserve'))              return 'state_park';
+  if (t.includes('state forest'))                return 'state_forest';
+  if (t.includes('state trail'))                 return 'state_trail';
+  if (t.includes('state beach'))                 return 'state_beach';
+  if (t.includes('state recreation') ||
+      t.includes('state vehicle recreational') ||
+      t.includes('recreation area') ||
+      t.includes('recreation park') ||
+      t.includes('recreation site'))             return 'recreation';
+  if (t.includes('wildlife management') ||
+      t.includes('wildlife area') ||
+      t.includes('waterfowl management') ||
+      t.includes('state fish and wildlife') ||
+      t.includes('state game land') ||
+      t.includes('state fishing lake'))          return 'wildlife';
+  if (t.includes('nature reserve') ||
+      t.includes('nature park') ||
+      t.includes('state conservation') ||
+      t.includes('conservation area') ||
+      t.includes('protected landscape'))         return 'nature_reserve';
+  if (t.includes('wetland') ||
+      t.includes('marsh'))                       return 'wetland';
+  if (t.includes('historic') ||
+      t.includes('memorial') ||
+      t.includes('heritage'))                    return 'historic';
+  if (t.includes('park'))                        return 'state_park';  // generic "Park", "Regional Park" etc.
+  return 'unknown';
+}
+
+function parkTypeEmoji(type) {
+  return PARK_TYPE_EMOJI[type] || '❓';
+}
+
+// ── Park type cache ──────────────────────────────────────
+// Background-fetched from api.pota.app/park/<ref> for each visible spot.
+// Values: undefined = not yet fetched, null = fetch in-flight,
+//         string = parktypeDesc from API ('' if API returned nothing).
+//
+// Design decisions:
+//   - Fetch is fire-and-forget; render() uses whatever is cached at draw time.
+//   - ⏳ shown while fetch is in-flight; real emoji (or ❓) shown after.
+//   - Failed fetches store '' so we don't retry on every render cycle.
+//   - Cache is never cleared — park types don't change between sessions.
+const parkTypeCache = {};
+
+// Debounce timer for the post-fetch render triggered by park type lookups.
+// 200ms debounce coalesces rapid completions into a small number of renders.
+let parkRenderTimer = null;
+function scheduleParkRender() {
+  clearTimeout(parkRenderTimer);
+  parkRenderTimer = setTimeout(render, 200);
+}
+
+async function fetchParkType(ref) {
+  if (ref in parkTypeCache) return;   // already cached or in-flight
+  parkTypeCache[ref] = null;          // null = in-flight
+  try {
+    const r = await fetch(`https://api.pota.app/park/${encodeURIComponent(ref)}`,
+                          { signal: AbortSignal.timeout(5000) });
+    const d = await r.json();
+    parkTypeCache[ref] = d.parktypeDesc || '';
+  } catch {
+    parkTypeCache[ref] = '';  // failed — don't retry
+  }
+  scheduleParkRender();
+}
+
+function fetchParkTypes() {
+  allSpots.forEach(s => { if (s.reference) fetchParkType(s.reference); });
+}
 
 // ── Utility functions ────────────────────────────────────
 
@@ -1313,6 +1462,7 @@ async function fetchSpots() {
 
     setStatus('ok', allSpots.length + ' active spots loaded.');
     render();
+    fetchParkTypes();  // background — icons appear via debounced render as data arrives
 
   } catch (err) {
     setStatus('error', 'Fetch failed: ' + err.message +
@@ -1404,6 +1554,14 @@ function render() {
         return dir * (a.activator || '').localeCompare(b.activator || '');
       case 'ref':
         return dir * (a.reference || '').localeCompare(b.reference || '');
+      case 'parktype': {
+        // Sort by canonical type order (federal → state → other → unknown).
+        // Stable sort preserves existing order within each type group.
+        // In-flight fetches (null) and unfetched (undefined) sort as 'unknown'.
+        const ta = PARK_TYPE_ORDER.indexOf(classifyParkType(parkTypeCache[a.reference] || ''));
+        const tb = PARK_TYPE_ORDER.indexOf(classifyParkType(parkTypeCache[b.reference] || ''));
+        return dir * (ta - tb);
+      }
       case 'park':
         return dir * (a.name || '').localeCompare(b.name || '');
       case 'loc':
@@ -1460,6 +1618,11 @@ function render() {
       <td class="mode">${esc(modeDisp)}</td>
       <td class="callsign"><a class="spot-link" href="https://pota.app/#/profile/${esc(callsign)}" target="_blank" title="POTA profile: ${esc(callsign)}">${esc(callsign)}</a></td>
       <td class="ref"><a class="spot-link" href="https://pota.app/#/park/${esc(ref)}" target="_blank" title="POTA park: ${esc(ref)}">${esc(ref)}</a>${hintHTML ? ' '+hintHTML : ''}</td>
+      <td class="parktype" title="${esc(parkTypeCache[ref] || '')}">${
+        parkTypeCache[ref] === undefined ? '' :        // not yet fetched — blank
+        parkTypeCache[ref] === null      ? '⏳' :      // fetch in-flight
+        parkTypeEmoji(classifyParkType(parkTypeCache[ref]))  // resolved
+      }</td>
       <td class="park" title="${esc(park)}">${esc(park.length > 36 ? park.slice(0,34)+'…' : park)}</td>
       <td class="loc" title="${esc(loc)}">${esc(fmtLocation(loc))}</td>
       <td class="age ${age.cls}" title="${fmtUTC(spotTime)}">${age.text}</td>
