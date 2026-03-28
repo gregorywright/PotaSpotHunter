@@ -46,6 +46,10 @@ ham radio with one click.
 | `CHANGELOG.md` | Version history in keep-a-changelog style |
 | `AGENTS.md` | This file — AI steering document |
 | `requirements.txt` | Intentionally empty — no third-party dependencies |
+| `requirements-dev.txt` | Dev dependencies — pytest only; not shipped in release ZIP |
+| `build.py` | Developer utility — `python3 build.py test` runs the test suite |
+| `tests/test_proxy_backends.py` | pytest unit tests for PotaProxy backends |
+| `CONTRIBUTING.md` | Setup and test instructions for contributors |
 | `.github/workflows/release.yml` | GitHub Actions release workflow |
 
 ---
@@ -123,13 +127,32 @@ The `v` prefix is added by the workflow and the HTML display where needed.
 `PotaProxy.py` reads this file at module load time (not inside `main()`)
 and stores it as `APP_VERSION`. It is served via the `/version` HTTP route.
 
+### AppleScript string sanitization — in _osascript(), not in callers
+All lines passed to `_osascript()` are stripped of non-ASCII characters
+before being sent to osascript. This is enforced at the boundary in
+`_osascript()` itself, not in individual callers like `tune()`. Reason:
+AppleScript string literals cannot contain non-ASCII characters or embedded
+double-quotes — both cause syntax error -2741. Park names from the POTA API
+can contain Cyrillic, Chinese, German umlauts, and quoted strings (e.g.
+`Чыстая дуброва "Язненская"`). The `tune()` method additionally strips
+double-quotes from the note before appending `setNOTE` — this is needed
+because `_osascript()` strips non-ASCII but does not strip quotes (quotes
+are valid ASCII and appear in legitimate AppleScript syntax). Do NOT move
+the sanitization back into individual callers — it belongs at the boundary.
+
+### CHANGELOG.md — update with every commit
+Update `CHANGELOG.md` under `[Unreleased]` with every commit, not just at
+release time. Missing changelog entries have caused documentation gaps.
+At release time: rename `[Unreleased]` to `## [X.Y.Z] - YYYY-MM-DD`, add
+new empty `[Unreleased]` at top, bump `VERSION`, update `AGENTS.md`.
+
 ---
 
 ## Current state of the UI
 
 ### Header row
 ```
-POTA ► SPOT HUNTER v1.4.0   [status line]          [🏆 W7GFW · Arizona Agave] [⊕ Map]
+POTA ► SPOT HUNTER v1.5.1   [status line]          [🏆 W7GFW · Arizona Agave] [⊕ Map]
 ```
 The version number is fetched from the proxy `/version` endpoint at startup
 and injected into `#version-label` — it is never hardcoded in the HTML.
@@ -137,7 +160,9 @@ and injected into `#version-label` — it is never hardcoded in the HTML.
 The 🏆 award badge button shows "Set callsign" when no callsign is stored,
 or "🏆 <CALL> · <tier>" when a callsign is set. Clicking it opens a popover
 with a callsign input, progress bar, and endorsement list. Callsign is stored
-in localStorage. Saving an empty callsign clears it.
+in localStorage. Saving an empty callsign clears it. Saving or clearing
+triggers an immediate `render()` so hint icons update without waiting for
+the next spot refresh.
 
 ### Toolbar (wraps gracefully; each label+control is an atomic flex unit)
 ```
@@ -157,6 +182,9 @@ JS8, PSK, OLIVIA). All five options are mutually exclusive. The value in the
 
 ### Spot table columns
 Freq (kHz) | Mode | Callsign | Park Ref | Park Name | Location | Last Heard | New | Tune button removed — click row to tune
+
+Award hint icons (🌙🌅🎆🎪✨) appear inline after the park ref link in the
+Park Ref cell. See `spotAwardHints()` and `renderHintIcons()` for logic.
 
 ### Map panel
 - Leaflet.js + OpenStreetMap (no API key)
@@ -277,11 +305,13 @@ git push origin mainline --tags
 
 ### What the workflow does (.github/workflows/release.yml)
 1. Reads `VERSION`, verifies the tag matches (fails fast if not)
-2. Extracts the matching `## [X.Y.Z]` section from `CHANGELOG.md` as release notes
+2. Extracts the matching `## [X.Y.Z]` section from `CHANGELOG.md` as release notes,
+   prepending a Quick Start section automatically
 3. Creates `PotaSpotHunter-vX.Y.Z.zip` containing:
    `PotaSpotHunter.html`, `PotaProxy.py`, `VERSION`, `README.md`,
    `CHANGELOG.md`, `LICENSE`, `requirements.txt`
-   (Note: `AGENTS.md` is intentionally excluded from the release zip)
+   (Note: `AGENTS.md`, `build.py`, `tests/`, `requirements-dev.txt`,
+   and `CONTRIBUTING.md` are intentionally excluded from the release zip)
 4. Creates a **draft** GitHub release with the zip attached
 
 ### Publishing the draft
@@ -331,7 +361,7 @@ if the next changes are patch-level). Unreleased changes are tracked in
 - `PotaSpotHunter.html` is entirely self-contained — no build step, no npm,
   no bundler. Open directly in a browser (after starting the proxy).
 - `PotaProxy.py` requires Python 3.6+ and no third-party packages.
-- The HTML file is ~2300 lines. Always read the relevant section before
+- The HTML file is ~2500 lines. Always read the relevant section before
   editing — don't rely on memory of exact whitespace.
 - Always verify edits with a grep/check pass after making changes.
 - The branch is `mainline`.
@@ -343,6 +373,19 @@ if the next changes are patch-level). Unreleased changes are tracked in
 - **CHANGELOG.md workflow** — maintain the `[Unreleased]` section as we go.
   At release time: rename it to `## [X.Y.Z] - YYYY-MM-DD`, bump `VERSION`,
   update `README.md` and `AGENTS.md` if needed, commit, tag, push.
+- **Running tests** — `python3 build.py test`. Requires pytest. On macOS with
+  Homebrew: `brew install pytest`. Tests mock all external calls — no radio
+  software or network needed.
+- **CSS variables in use** — `--bg` (#0d0f0e), `--border` (#2a2e2a),
+  `--amber`, `--green`, `--text-dim`, `--mono`. No `--bg-card` variable
+  exists — popovers use hardcoded `#1a1e1a`.
+- **POTA API** — public, no auth. Endpoints confirmed working:
+  - `https://api.pota.app/spot/activator` — live spots
+  - `https://api.pota.app/profile/<call>` — awards, stats, endorsements
+  - `https://api.pota.app/park/<ref>` — park detail (type, coords, website)
+  - `https://api.pota.app/park/stats/<ref>` — activation counts
+  POTA has confirmed their APIs are internal only — no third-party auth
+  program exists. Use public endpoints as best-effort only.
 
 ---
 
