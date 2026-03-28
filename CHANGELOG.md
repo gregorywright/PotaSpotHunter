@@ -1,4 +1,7 @@
 ## [Unreleased]
+### Changed
+- Release notes now include a Quick Start section at the top so users
+  see setup instructions directly on the GitHub release page.
 
 ## [1.5.1] - 2026-03-28
 ### Added
