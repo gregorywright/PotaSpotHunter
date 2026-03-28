@@ -2076,6 +2076,7 @@ document.getElementById('map-close').addEventListener('click', closeMap);
 
 document.getElementById('band-select').addEventListener('change', render);
 document.getElementById('mode-select').addEventListener('change', render);
+document.getElementById('refresh-interval').addEventListener('change', startAutoRefresh);
 
 // When the rig backend changes, ping it immediately so the operator
 // gets instant feedback on whether the proxy / rig software is running.

@@ -637,7 +637,12 @@ class MacLoggerDXBackend(RigBackend):
                 f'delay {self.LOOKUP_DELAY}',
             ]
         if note:
-            script_lines.append(f'setNOTE "{note}"')
+            # AppleScript string literals cannot contain non-ASCII characters
+            # or embedded double-quotes — both cause a syntax error (-2741).
+            # Strip them before injecting into the script.
+            safe_note = note.encode('ascii', errors='ignore').decode('ascii').replace('"', '').strip()
+            if safe_note:
+                script_lines.append(f'setNOTE "{safe_note}"')
         script_lines.append('end tell')
 
         self._osascript(script_lines)
