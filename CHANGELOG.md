@@ -1,4 +1,6 @@
 ## [Unreleased]
+
+## [1.5.0] - 2026-03-27
 ### Added
 - **Award tracking badge** — a 🏆 button in the header lets hunters enter
   their callsign (stored in localStorage). Once set, the badge shows the
