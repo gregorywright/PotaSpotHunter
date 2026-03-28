@@ -1,4 +1,6 @@
 ## [Unreleased]
+
+## [1.5.1] - 2026-03-28
 ### Added
 - Unit test suite for `PotaProxy.py` backends using pytest (`python3 build.py test`).
   Tests cover MacLoggerDX note sanitization (ASCII stripping, quote removal,
