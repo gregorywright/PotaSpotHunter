@@ -394,7 +394,12 @@ if the next changes are patch-level). Unreleased changes are tracked in
   software or network needed.
 - **CSS variables in use** — `--bg` (#0d0f0e), `--border` (#2a2e2a),
   `--amber`, `--green`, `--text-dim`, `--mono`. No `--bg-card` variable
-  exists — popovers use hardcoded `#1a1e1a`.
+  exists — popovers use hardcoded `#1a1e1a`. Tooltip uses `#1e1a0e`
+  (amber-tinted dark) with `--amber` border.
+- **Tooltips** — use `data-tip="..."` attributes, not `title=`. The custom
+  tooltip system (`#tooltip` div, `showTooltip/hideTooltip/positionTooltip`)
+  handles all hover text. Do NOT add `title=` attributes to table cells or
+  spot row elements — they will show native browser tooltips instead.
 - **POTA API** — public, no auth. Endpoints confirmed working:
   - `https://api.pota.app/spot/activator` — live spots
   - `https://api.pota.app/profile/<call>` — awards, stats, endorsements

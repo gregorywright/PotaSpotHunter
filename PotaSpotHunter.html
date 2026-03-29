@@ -919,9 +919,32 @@
     color: var(--green);
     text-shadow: 0 0 8px rgba(57,255,106,0.6);
   }
+  /* ── Custom tooltip ──────────────────────────────────── */
+  /* Replaces native title= tooltips for consistent styling and
+     faster/configurable delay. Triggered by data-tip attributes.
+     Uses event delegation on the table — one listener, not one per cell. */
+  #tooltip {
+    position: fixed;
+    z-index: 9000;
+    background: #1e1a0e;
+    border: 1px solid var(--amber);
+    color: var(--text);
+    font-family: var(--ui);
+    font-size: 12px;
+    padding: 5px 9px;
+    border-radius: 3px;
+    pointer-events: none;
+    white-space: pre-wrap;
+    max-width: 320px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.5);
+    opacity: 0;
+    transition: opacity 0.1s;
+  }
+  #tooltip.visible { opacity: 1; }
 </style>
 </head>
 <body>
+<div id="tooltip"></div>
 <div id="app">
 
   <!-- Header -->
@@ -1240,7 +1263,8 @@ function classifyParkType(parktypeDesc) {
       t.includes('natural monument'))            return 'national_monument';
   if (t.includes('national wildlife') ||
       t.includes('national wild and scenic') ||
-      t.includes('national scenic trail'))       return 'national_wildlife';
+      t.includes('national scenic trail') ||
+      t.includes('wilderness area'))             return 'national_wildlife';
   if (t.includes('blm') ||
       t.includes('national'))                    return 'national_other';
   if (t.includes('state park') ||
@@ -1616,17 +1640,17 @@ function render() {
                 data-callsign="${esc(callsign)}" data-ref="${esc(ref)}" data-park="${esc(park)}">
       <td class="freq">${esc(freqKhz)}</td>
       <td class="mode">${esc(modeDisp)}</td>
-      <td class="callsign"><a class="spot-link" href="https://pota.app/#/profile/${esc(callsign)}" target="_blank" title="POTA profile: ${esc(callsign)}">${esc(callsign)}</a></td>
-      <td class="ref"><a class="spot-link" href="https://pota.app/#/park/${esc(ref)}" target="_blank" title="POTA park: ${esc(ref)}">${esc(ref)}</a>${hintHTML ? ' '+hintHTML : ''}</td>
-      <td class="parktype" title="${esc(parkTypeCache[ref] || '')}">${
+      <td class="callsign"><a class="spot-link" href="https://pota.app/#/profile/${esc(callsign)}" target="_blank" data-tip="https://pota.app/#/profile/${esc(callsign)}">${esc(callsign)}</a></td>
+      <td class="ref"><a class="spot-link" href="https://pota.app/#/park/${esc(ref)}" target="_blank" data-tip="https://pota.app/#/park/${esc(ref)}">${esc(ref)}</a>${hintHTML ? ' '+hintHTML : ''}</td>
+      <td class="parktype" data-tip="${esc(parkTypeCache[ref] || '')}">${
         parkTypeCache[ref] === undefined ? '' :        // not yet fetched — blank
         parkTypeCache[ref] === null      ? '⏳' :      // fetch in-flight
         parkTypeEmoji(classifyParkType(parkTypeCache[ref]))  // resolved
       }</td>
-      <td class="park" title="${esc(park)}">${esc(park.length > 36 ? park.slice(0,34)+'…' : park)}</td>
-      <td class="loc" title="${esc(loc)}">${esc(fmtLocation(loc))}</td>
-      <td class="age ${age.cls}" title="${fmtUTC(spotTime)}">${age.text}</td>
-      <td class="new-spot" title="New since last refresh">${isNew ? '&#9679;' : ''}</td>
+      <td class="park" data-tip="${esc(park)}">${esc(park.length > 36 ? park.slice(0,34)+'…' : park)}</td>
+      <td class="loc" data-tip="${esc(loc)}">${esc(fmtLocation(loc))}</td>
+      <td class="age ${age.cls}" data-tip="${fmtUTC(spotTime)}">${age.text}</td>
+      <td class="new-spot" data-tip="New since last refresh">${isNew ? '&#9679;' : ''}</td>
     </tr>`;
   });
 
@@ -2241,6 +2265,60 @@ document.getElementById('band-select').addEventListener('change', render);
 document.getElementById('mode-select').addEventListener('change', render);
 document.getElementById('refresh-interval').addEventListener('change', startAutoRefresh);
 
+// ── Custom tooltip ───────────────────────────────────────
+// Replaces native title= tooltips. Elements use data-tip="..." instead.
+// Event delegation on document — one mousemove listener handles everything.
+// 300ms delay feels responsive without flashing on accidental hover.
+const tooltipEl = document.getElementById('tooltip');
+let tooltipTimer = null;
+let tooltipTarget = null;  // track current hovered element to detect changes
+
+function showTooltip(text, x, y) {
+  tooltipEl.textContent = text;
+  tooltipEl.classList.add('visible');
+  positionTooltip(x, y);
+}
+
+function positionTooltip(x, y) {
+  // Keep tooltip within viewport — flip left if too close to right edge
+  const pad = 12;
+  const tw = tooltipEl.offsetWidth;
+  const left = (x + pad + tw > window.innerWidth) ? x - tw - pad : x + pad;
+  tooltipEl.style.left = left + 'px';
+  tooltipEl.style.top  = (y + pad) + 'px';
+}
+
+function hideTooltip() {
+  clearTimeout(tooltipTimer);
+  tooltipTimer = null;
+  tooltipTarget = null;
+  tooltipEl.classList.remove('visible');
+}
+
+document.addEventListener('mousemove', e => {
+  const el = e.target.closest('[data-tip]');
+
+  // If we've moved to a different element (or no element), reset
+  if (el !== tooltipTarget) {
+    hideTooltip();
+    tooltipTarget = el;
+  }
+
+  if (!el || !el.dataset.tip) return;
+
+  // Reposition if already visible
+  if (tooltipEl.classList.contains('visible')) {
+    positionTooltip(e.clientX, e.clientY);
+    return;
+  }
+
+  // Start delay timer for new element
+  clearTimeout(tooltipTimer);
+  tooltipTimer = setTimeout(() => showTooltip(el.dataset.tip, e.clientX, e.clientY), 300);
+});
+
+document.addEventListener('mouseleave', hideTooltip);
+
 // When the rig backend changes, ping it immediately so the operator
 // gets instant feedback on whether the proxy / rig software is running.
 // On failure, pingRigBackend resets the dropdown to "none" automatically.
@@ -2647,11 +2725,11 @@ function spotAwardHints(spot) {
 function renderHintIcons(hints) {
   const s = 'style="margin-left:5px"';
   const icons = [];
-  if (hints.has('lateshift'))        icons.push(`<span ${s} title="Late Shift window active — counts toward Late Shift Hunter award">🌙</span>`);
-  if (hints.has('earlyshift'))       icons.push(`<span ${s} title="Early Shift window active — counts toward Early Shift Hunter award">🌅</span>`);
-  if (hints.has('newyears'))         icons.push(`<span ${s} title="New Years week (Jan 1–7) — counts toward New Years Hunter award">🎆</span>`);
-  if (hints.has('supportyourparks')) icons.push(`<span ${s} title="Support Your Parks event weekend — counts toward Support Your Parks Hunter award">🎪</span>`);
-  if (hints.has('newendo'))          icons.push(`<span ${s} title="You have no endorsement on this band yet — working this spot could help earn one">✨</span>`);
+  if (hints.has('lateshift'))        icons.push(`<span ${s} data-tip="Late Shift window active — counts toward Late Shift Hunter award">🌙</span>`);
+  if (hints.has('earlyshift'))       icons.push(`<span ${s} data-tip="Early Shift window active — counts toward Early Shift Hunter award">🌅</span>`);
+  if (hints.has('newyears'))         icons.push(`<span ${s} data-tip="New Years week (Jan 1–7) — counts toward New Years Hunter award">🎆</span>`);
+  if (hints.has('supportyourparks')) icons.push(`<span ${s} data-tip="Support Your Parks event weekend — counts toward Support Your Parks Hunter award">🎪</span>`);
+  if (hints.has('newendo'))          icons.push(`<span ${s} data-tip="You have no endorsement on this band yet — working this spot could help earn one">✨</span>`);
   return icons.join('');
 }
 

@@ -1,4 +1,13 @@
 ## [Unreleased]
+### Added
+- **Custom tooltips** — replaced native browser `title=` tooltips with
+  styled dark tooltips matching the app theme (amber border, amber-tinted
+  background). 300ms delay, appear on hover, dismiss immediately on mouse
+  leave or element change. Callsign and park ref links show the full URL
+  in the tooltip. Award hint icons show descriptive text.
+### Fixed
+- Wilderness Area park type now correctly classified as `national_wildlife`
+  (🦅) instead of ❓.
 
 ## [1.6.0] - 2026-03-28
 ### Added
