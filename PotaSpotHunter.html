@@ -86,6 +86,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="referrer" content="strict-origin-when-cross-origin">
 <title>POTA Spot Hunter</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Barlow+Condensed:wght@300;400;600;700&display=swap" rel="stylesheet">
@@ -2013,6 +2014,11 @@ function initMap() {
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution: '© <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a>',
     maxZoom: 18,
+    // OSM tile policy requires a Referer header. When served from file://
+    // the browser sends none by default, causing 403r errors on zoom.
+    // strict-origin-when-cross-origin sends the origin as Referer for
+    // cross-origin requests, which satisfies OSM's requirement.
+    referrerPolicy: 'strict-origin-when-cross-origin',
   }).addTo(leafletMap);
 
   markersLayer = L.layerGroup().addTo(leafletMap);

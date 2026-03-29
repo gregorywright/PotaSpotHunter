@@ -5,6 +5,11 @@
   background). 300ms delay, appear on hover, dismiss immediately on mouse
   leave or element change. Callsign and park ref links show the full URL
   in the tooltip. Award hint icons show descriptive text.
+### Changed
+- Proxy now serves `PotaSpotHunter.html` at `http://localhost:{port}/`
+  instead of opening it as a `file://` URL. This gives the page a real
+  HTTP origin, which the browser sends as the Referer header on OSM tile
+  requests — fixing intermittent 403r errors when zooming the map.
 ### Fixed
 - Wilderness Area park type now correctly classified as `national_wildlife`
   (🦅) instead of ❓.

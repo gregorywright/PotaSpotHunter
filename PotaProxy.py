@@ -793,6 +793,24 @@ class ProxyHandler(BaseHTTPRequestHandler):
         path     = parsed.path.rstrip("/")
         qs       = parse_qs(parsed.query)
 
+        # ── Route: / — serve PotaSpotHunter.html over HTTP ──
+        # Serving over HTTP (rather than file://) gives the page a real
+        # origin (http://localhost:8080), which the browser sends as the
+        # Referer header on tile requests to OpenStreetMap. Without this,
+        # file:// pages send no Referer and OSM intermittently returns 403r.
+        if path == "" or path == "/":
+            html_path = pathlib.Path(__file__).parent / "PotaSpotHunter.html"
+            if not html_path.exists():
+                self._send_error(404, "PotaSpotHunter.html not found")
+                return
+            content = html_path.read_bytes()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(content)))
+            self.end_headers()
+            self.wfile.write(content)
+            return
+
         # ── Route: /backends ────────────────────────────────
         if path == "/backends":
             self._json_response(200, {
@@ -1046,7 +1064,7 @@ def main():
         def _open():
             import time
             time.sleep(0.5)
-            url = html_path.as_uri()   # converts to file:///path/to/...
+            url = f"http://localhost:{args.port}/"
             log.info("Opening browser: %s", url)
             webbrowser.open(url)
         threading.Thread(target=_open, daemon=True).start()

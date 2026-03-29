@@ -140,13 +140,23 @@ because `_osascript()` strips non-ASCII but does not strip quotes (quotes
 are valid ASCII and appear in legitimate AppleScript syntax). Do NOT move
 the sanitization back into individual callers — it belongs at the boundary.
 
-### CHANGELOG.md — update with every commit
+### Park type classification — two functions, not one
+`PotaSpotHunter.html` is served by the proxy at `http://localhost:8080/`
+rather than opened as a `file://` URL. This gives the page a real HTTP
+origin, which the browser sends as the `Referer` header on tile requests
+to OpenStreetMap — required by OSM's tile usage policy to avoid 403r errors.
+
+The proxy was already required for the app to function (the startup ping
+blocks the UI if the proxy is not running), so serving the HTML from it
+is not a meaningful regression. Do NOT revert to `file://` — the OSM
+403r errors will return. The proxy opens `http://localhost:{port}/`
+automatically on startup.
 Update `CHANGELOG.md` under `[Unreleased]` with every commit, not just at
 release time. Missing changelog entries have caused documentation gaps.
 At release time: rename `[Unreleased]` to `## [X.Y.Z] - YYYY-MM-DD`, add
 new empty `[Unreleased]` at top, bump `VERSION`, update `AGENTS.md`.
 
-### Park type classification — two functions, not one
+### CHANGELOG.md — update with every commit
 `classifyParkType(parktypeDesc)` and `parkTypeEmoji(type)` are kept as
 separate pure functions. `classifyParkType` maps raw API strings to a
 canonical type key (e.g. `'national_park'`); `parkTypeEmoji` maps keys to
