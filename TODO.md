@@ -450,57 +450,58 @@ GET /lookup_calls?calls=W1AW,K8BSR,...
 
 ---
 
-## [PLANNED] Build System — Split Source Files
+## [PLANNED] Split PotaSpotHunter.html into separate files
 
-Refactor `PotaSpotHunter.html` into separate source files for easier
-contribution by developers using traditional (non-AI) methods.
+Now that the proxy serves the HTML over HTTP (required since v1.6.1), the
+single-file constraint no longer applies. The proxy can serve `style.css`
+and `app.js` directly alongside `index.html` — no build step needed.
 
-### Source layout
+### Proposed file layout
 ```
-src/
-  index.html    ← HTML shell with placeholders
-  style.css     ← all CSS
-  app.js        ← all JavaScript
-build.py        ← combines src/ into PotaSpotHunter.html
+PotaSpotHunter.html   ← renamed to index.html (proxy serves at /)
+style.css             ← all CSS extracted
+app.js                ← all JavaScript extracted
+PotaProxy.py          ← add routes to serve style.css and app.js
 ```
 
-### How it works
-- `build.py` inlines `style.css` into a `<style>` block and `app.js` into
-  a `<script>` block, producing the single-file `PotaSpotHunter.html`
-- `PotaSpotHunter.html` becomes a build artifact — added to `.gitignore`
-- The GitHub Actions release workflow runs `python3 build.py` before
-  packaging the ZIP, so the release artifact is still a single HTML file
-- Contributors edit only `src/` files; users still get the same
-  single-file download experience
-
-### Local dev workflow
-```bash
-python3 build.py && open PotaSpotHunter.html
+### What changes in the proxy
+Add two static file routes alongside the existing `/` route:
+```python
+GET /style.css  → serve style.css
+GET /app.js     → serve app.js
 ```
-Optionally add a file-watcher mode to `build.py` for auto-rebuild on save.
+
+### What changes in the HTML
+Replace the inline `<style>` block with:
+```html
+<link rel="stylesheet" href="/style.css">
+```
+Replace the inline `<script>` block with:
+```html
+<script src="/app.js"></script>
+```
+
+### Release ZIP
+The ZIP gains two files (`style.css`, `app.js`) but the user experience
+is identical — they still just unzip and run `python3 PotaProxy.py`.
+No build step, no npm, no tooling.
+
+### Why not a JS framework (React/Vue/Svelte)?
+The app has ~5 pieces of state and one main `render()` function. Frameworks
+solve cascading state, component reuse, and virtual DOM diffing — none of
+which are significant problems here. The overhead (npm, build tooling,
+dependency maintenance) outweighs the benefit at current scale.
+
+If the app grows significantly (multiple views, complex settings UI), Svelte
+would be the best option — it compiles away at build time with no runtime
+overhead. Revisit if complexity grows.
+
+### Why not a CSS framework (Tailwind/Bootstrap)?
+The CSS is ~400 lines of intentional dark-theme styling. A framework would
+fight against the custom theme. Not worth it.
 
 ### Notes
-- No npm, no bundler, no third-party dependencies — build.py is pure Python
-- A git pre-commit hook can enforce that the generated file is up to date
-- Do this before the codebase grows much larger if outside contributors
-  are a goal
-
-### Why we don't just split the file and call it done
-Naively splitting into `index.html` + `style.css` + `app.js` and committing
-all three breaks the user experience:
-
-- **`file://` loading is restricted** — browsers (especially Safari) block
-  loading external CSS and JS from a `file://` HTML page for security
-  reasons. Users who open the HTML directly without the proxy would get a
-  broken, unstyled page.
-- **Files must stay together** — if a user downloads and unzips the release,
-  they now have three files to keep in the same folder. Easy to accidentally
-  move just the HTML and wonder why it's broken.
-- **The proxy opens the file directly** — `PotaProxy.py` launches the browser
-  with a `file://` URL. Serving the split files over HTTP from the proxy
-  would work around the `file://` restriction, but adds complexity to the
-  proxy and changes the startup model.
-
-The build-script approach avoids all of these: source is split for
-developers, but the release artifact and the file the proxy opens are still
-a single self-contained HTML file.
+- No build step required — proxy serves files directly
+- Contributors can edit CSS/JS independently with proper syntax highlighting
+- Git diffs become meaningful (CSS change only touches style.css)
+- The old "build script" plan in this file is superseded by this approach

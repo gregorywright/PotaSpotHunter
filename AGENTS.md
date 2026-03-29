@@ -355,7 +355,7 @@ git push origin mainline --tags
 
 ## Current version
 
-`VERSION` file contains `1.6.0`. The next release will be v1.7.0 (or v1.6.1
+`VERSION` file contains `1.6.1`. The next release will be v1.7.0 (or v1.6.2
 if the next changes are patch-level). Unreleased changes are tracked in
 `CHANGELOG.md` under `[Unreleased]`.
 
@@ -386,6 +386,9 @@ if the next changes are patch-level). Unreleased changes are tracked in
 
 - `PotaSpotHunter.html` is entirely self-contained — no build step, no npm,
   no bundler. Open directly in a browser (after starting the proxy).
+- **Planned:** split into `index.html` + `style.css` + `app.js`, served
+  directly by the proxy. No build step needed — proxy already serves the
+  HTML over HTTP. See TODO.md for the full plan.
 - `PotaProxy.py` requires Python 3.6+ and no third-party packages.
 - The HTML file is ~2500 lines. Always read the relevant section before
   editing — don't rely on memory of exact whitespace.

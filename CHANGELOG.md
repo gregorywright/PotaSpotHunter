@@ -1,4 +1,6 @@
 ## [Unreleased]
+
+## [1.6.1] - 2026-03-29
 ### Added
 - **Custom tooltips** — replaced native browser `title=` tooltips with
   styled dark tooltips matching the app theme (amber border, amber-tinted
@@ -13,6 +15,9 @@
 ### Fixed
 - Wilderness Area park type now correctly classified as `national_wildlife`
   (🦅) instead of ❓.
+- Park type classifier expanded to cover more API variants: State Trail 🥾,
+  State Beach 🏖, BLM land 🪨, World Heritage Site → historic 🪧, and
+  additional state/federal subtypes seen in live spot data.
 
 ## [1.6.0] - 2026-03-28
 ### Added
