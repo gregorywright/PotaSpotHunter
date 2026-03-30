@@ -321,6 +321,11 @@
   }
   .scan-pill:last-child { border-right: none; }
   .scan-pill:hover { background: var(--surface); color: var(--text); }
+  .scan-pill:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+  }
+  .scan-pill:disabled:hover { background: var(--surface2); color: var(--text-dim); }
   .scan-pill.active {
     background: #0a2818;
     color: var(--green);
@@ -953,8 +958,17 @@
     <div class="logo">POTA <span>&#9658;</span> SPOT HUNTER<span id="version-label"></span></div>
     <div id="status-line">Initialising...</div>
     <div id="header-actions">
+      <span class="ctrl-group">
+        <span class="ctrl-label">Rig</span>
+        <select id="rig-select">
+          <option value="mldx">MacLoggerDX</option>
+          <option value="flrig">flrig</option>
+          <option value="rigctld">rigctld</option>
+          <option value="none" selected>None</option>
+        </select>
+      </span>
       <div style="position:relative">
-        <button id="btn-awards" title="Award tracking">🏆 Set callsign</button>
+        <button id="btn-awards" data-tip="Track your POTA hunter awards">🏆 Track Awards</button>
         <div id="awards-popover">
           <h3>🏆 Hunter Awards</h3>
           <div id="awards-callsign-row">
@@ -967,7 +981,7 @@
           </div>
         </div>
       </div>
-      <button id="btn-map" title="Toggle world map">&#9783; Map</button>
+      <button id="btn-map" data-tip="Toggle world map">&#9783; Map</button>
     </div>
   </header>
 
@@ -1006,16 +1020,6 @@
 
 
     <span class="ctrl-group">
-      <span class="ctrl-label">Rig</span>
-      <select id="rig-select">
-        <option value="mldx">MacLoggerDX</option>
-        <option value="flrig">flrig</option>
-        <option value="rigctld">rigctld</option>
-        <option value="none" selected>None</option>
-      </select>
-    </span>
-
-    <span class="ctrl-group">
       <span class="ctrl-label">Refresh</span>
       <select id="refresh-interval">
         <option value="2">2 min</option>
@@ -1026,7 +1030,7 @@
         <option value="60">60 min</option>
         <option value="0">Manual</option>
       </select>
-      <button id="btn-refresh" title="Fetch fresh spots from api.pota.app now">
+      <button id="btn-refresh" data-tip="Fetch fresh spots from api.pota.app now">
         <svg id="refresh-icon" width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
           <path d="M13.5 8A5.5 5.5 0 1 1 8 2.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
           <path d="M8 0.5L10.5 3.5L7.5 3.5Z" fill="currentColor"/>
@@ -1037,7 +1041,7 @@
 
     <span class="ctrl-group">
       <span class="ctrl-label">Auto Scan</span>
-      <div id="auto-scan-pills" title="Auto-tune dwell time per spot. Any click or keypress stops scanning.">
+      <div id="auto-scan-pills" data-tip="Auto-tune dwell time per spot. Any click or keypress stops scanning.">
         <button class="scan-pill active" data-dwell="0">Off</button>
         <button class="scan-pill" data-dwell="5">5s</button>
         <button class="scan-pill" data-dwell="10">10s</button>
@@ -1061,11 +1065,11 @@
           <th data-col="mode">Mode</th>
           <th data-col="callsign">Callsign</th>
           <th data-col="ref">Park Ref</th>
-          <th data-col="parktype" title="Park type — click to sort by type">Type</th>
+          <th data-col="parktype" data-tip="Park type — click to sort by type">Type</th>
           <th data-col="park">Park Name</th>
           <th data-col="loc">Location</th>
           <th data-col="time">Last Heard</th>
-          <th data-col="new" title="New since last refresh">New</th>
+          <th data-col="new" data-tip="New since last refresh">New</th>
         </tr>
       </thead>
       <tbody id="spot-tbody"></tbody>
@@ -1085,7 +1089,7 @@
     <div id="map-toolbar">
       <strong id="map-spot-count"></strong>
       <span id="map-hint">· Click a marker to select · Click a row to pan the map</span>
-      <button id="map-close" title="Close map">&#10005;</button>
+      <button id="map-close" data-tip="Close map">&#10005;</button>
     </div>
     <div id="map-container"></div>
   </div>
@@ -1407,8 +1411,14 @@ function esc(s) {
 function fmtLocation(loc) {
   if (!loc) return '';
   const parts = loc.split(',').map(p => p.trim()).filter(Boolean);
-  if (parts.length <= 1) return loc;
+  if (parts.length <= 1) return loc.trim();
   return parts[0] + ', +' + (parts.length - 1);
+}
+
+// Full location string with spaces after commas, for tooltips.
+function fmtLocationFull(loc) {
+  if (!loc) return '';
+  return loc.split(',').map(p => p.trim()).filter(Boolean).join(', ');
 }
 
 // Determine which band name a frequency (kHz) falls in.
@@ -1649,7 +1659,7 @@ function render() {
         parkTypeEmoji(classifyParkType(parkTypeCache[ref]))  // resolved
       }</td>
       <td class="park" data-tip="${esc(park)}">${esc(park.length > 36 ? park.slice(0,34)+'…' : park)}</td>
-      <td class="loc" data-tip="${esc(loc)}">${esc(fmtLocation(loc))}</td>
+      <td class="loc" data-tip="${esc(fmtLocationFull(loc))}">${esc(fmtLocation(loc))}</td>
       <td class="age ${age.cls}" data-tip="${fmtUTC(spotTime)}">${age.text}</td>
       <td class="new-spot" data-tip="New since last refresh">${isNew ? '&#9679;' : ''}</td>
     </tr>`;
@@ -1803,15 +1813,14 @@ async function pingRigBackend(backend) {
     hideConnecting();
 
     if (!data.ok) {
-      // Proxy is up but can't reach the rig software — reset to None
-      // and show the error dialog.
       sel.value = 'none';
+      updateScanPills();
       showRigError(backend, false, data.error);
     }
   } catch (err) {
     hideConnecting();
-    // fetch() threw — proxy is not running or the request timed out.
     sel.value = 'none';
+    updateScanPills();
     showRigError(backend, true, null);
   }
 }
@@ -2330,6 +2339,7 @@ document.addEventListener('mouseleave', hideTooltip);
 // On failure, pingRigBackend resets the dropdown to "none" automatically.
 document.getElementById('rig-select').addEventListener('change', e => {
   pingRigBackend(e.target.value);
+  updateScanPills();
 });
 
 document.getElementById('btn-refresh').addEventListener('click', () => {
@@ -2510,11 +2520,19 @@ function autoScanStop(resetPills = true) {
 }
 
 function updateScanPills() {
+  const rigIsNone = document.getElementById('rig-select').value === 'none';
+  const pillsEl = document.getElementById('auto-scan-pills');
+  // Show tooltip on the container when disabled — disabled buttons don't
+  // fire mouse events so we can't put data-tip on the buttons themselves.
+  if (rigIsNone) {
+    pillsEl.dataset.tip = 'Select a rig backend to enable Auto Scan';
+  } else {
+    delete pillsEl.dataset.tip;
+  }
   document.querySelectorAll('.scan-pill').forEach(btn => {
     const d = parseInt(btn.dataset.dwell, 10);
+    btn.disabled = rigIsNone && d !== 0;
     btn.classList.toggle('active', d === autoScanDwell);
-    // Mark OFF pill with scanning-active class when a scan IS running
-    // so we can give it a red tint as a "click to stop" hint
     if (d === 0) {
       btn.classList.toggle('scanning-active', autoScanDwell !== 0);
     }
@@ -2775,7 +2793,7 @@ function renderAwardsBadge() {
   const btn = document.getElementById('btn-awards');
   const call = localStorage.getItem('hunterCallsign');
   if (!call) {
-    btn.textContent = '🏆 Set callsign';
+    btn.textContent = '🏆 Track Awards';
     return;
   }
   if (!hunterProfile) {
@@ -2823,7 +2841,7 @@ function renderAwardsPopover() {
 
   const endoHTML = [...allBands, ...allModes].map(e => {
     const have = endorsements.includes(e);
-    return `<span class="${have ? 'have' : 'need'}" title="${have ? 'Earned' : 'Not yet earned'}">${e}</span>`;
+    return `<span class="${have ? 'have' : 'need'}" data-tip="${have ? 'Earned' : 'Not yet earned'}">${e}</span>`;
   }).join(' ');
 
   el.innerHTML = `
@@ -2906,6 +2924,7 @@ document.addEventListener('click', e => {
 // seed any previous-value tracker since pingRigBackend always falls
 // back to 'none' on error rather than a stored previous value.
 startupProxyCheck();
+updateScanPills();  // disable scan pills if rig starts as None
 
 // Load hunter profile on startup if callsign is stored
 (async () => {

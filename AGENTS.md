@@ -170,7 +170,7 @@ any display concerns. Do NOT merge them into a single
 
 ### Header row
 ```
-POTA ► SPOT HUNTER v1.5.1   [status line]          [🏆 W7GFW · Arizona Agave] [⊕ Map]
+POTA ► SPOT HUNTER v1.6.1   [status line]    [Rig: None▾] [🏆 Track Awards] [⊕ Map]
 ```
 The version number is fetched from the proxy `/version` endpoint at startup
 and injected into `#version-label` — it is never hardcoded in the HTML.

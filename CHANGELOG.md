@@ -1,4 +1,19 @@
 ## [Unreleased]
+### Added
+- Rig backend dropdown moved from toolbar to header bar, alongside the
+  awards badge and map button.
+- Auto Scan pills disabled when rig backend is "None" — scanning without
+  a rig does nothing useful. Pills re-enable when a backend is selected.
+  Tooltip on the pill group explains why they are disabled.
+- "Set callsign" award button renamed to "Track Awards".
+- Themes support added to TODO list.
+### Fixed
+- All remaining native browser `title=` tooltips replaced with custom
+  styled tooltips (`data-tip=`).
+- Location tooltip now shows spaces after commas (e.g. "US-OR, US-WA"
+  instead of "US-OR,US-WA").
+- Auto Scan pills now correctly disabled after a failed backend ping
+  resets the dropdown to None.
 
 ## [1.6.1] - 2026-03-29
 ### Added

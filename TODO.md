@@ -448,6 +448,11 @@ GET /lookup_calls?calls=W1AW,K8BSR,...
 - **Mobile layout** — the table is hard to use on a phone; a card-based
   layout for narrow viewports would help.
 
+- **Themes** — support selectable color themes (e.g. dark green, dark blue,
+  high contrast). CSS variables are already used throughout, so a theme
+  switcher would just swap a small set of root variable values. Store
+  preference in localStorage.
+
 ---
 
 ## [PLANNED] Split PotaSpotHunter.html into separate files
