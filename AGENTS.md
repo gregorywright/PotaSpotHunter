@@ -271,7 +271,7 @@ OFF → user clicks dwell pill        → autoScanStart(dwell)
 ON  → user clicks different pill    → autoScanStart(newDwell)  [keeps going]
 ON  → user clicks active pill       → autoScanStop()           [toggle off]
 ON  → user clicks OFF pill          → autoScanStop()
-ON  → any other click or keypress   → autoScanStop()
+ON  → user clicks a spot row        → autoScanStop()
 ```
 
 On start: look up `activeSpotId` in `lastRenderedSpots` — resume from there

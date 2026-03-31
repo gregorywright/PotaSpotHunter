@@ -2566,17 +2566,13 @@ document.getElementById('auto-scan-pills').addEventListener('click', e => {
   autoScanStart(dwell);
 });
 
-// Any click or keypress outside the pill control stops the scan
+// Only stop auto-scan when the user clicks a spot row or interacts with
+// the auto-scan pill control. Clicks elsewhere (map resize, filters,
+// header buttons) are ignored so the user can adjust the UI mid-scan.
 document.addEventListener('click', e => {
   if (!autoScanTimer) return;
-  // Ignore clicks that originated inside the pill control (handled above)
-  if (e.target.closest('#auto-scan-pills')) return;
-  autoScanStop();
-}, true);   // capture phase so we catch everything
-
-document.addEventListener('keydown', e => {
-  if (!autoScanTimer) return;
-  autoScanStop();
+  if (e.target.closest('#auto-scan-pills')) return;  // handled by pill listener
+  if (e.target.closest('#spot-tbody')) autoScanStop();  // clicking a spot stops scan
 }, true);
 
 // ── Startup: require proxy to be running ─────────────────
