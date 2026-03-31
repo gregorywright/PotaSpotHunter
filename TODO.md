@@ -546,7 +546,19 @@ GET /lookup_calls?calls=W1AW,K8BSR,...
      a settings popover or the header. Remove the `Ctrl+T` dev shortcut
      once the UI is in place.
 
-  3. **Consider more themes** — Monokai, Nord, One Dark, high-contrast
+  3. **Theme files in `themes/` directory:**
+     - Only the default `green-terminal` theme is hardcoded in the app
+     - All other themes ship as JSON files in a `themes/` directory
+     - At least one extra theme ships in the ZIP so users see the format
+       and are encouraged to create their own
+     - The proxy exposes a `GET /themes` endpoint listing available `.json`
+       files; the page fetches and merges them into the theme picker at startup
+     - Users install new themes by dropping a `.json` file into `themes/`
+       — no code changes needed
+     - Theme JSON format matches the `THEMES` object entries above
+       (keys are CSS variable names, values are CSS values)
+
+  4. **Consider more themes** — Monokai, Nord, One Dark, high-contrast
      accessibility theme.
 
   **Notes:**
