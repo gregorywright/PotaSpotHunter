@@ -453,6 +453,110 @@ GET /lookup_calls?calls=W1AW,K8BSR,...
   switcher would just swap a small set of root variable values. Store
   preference in localStorage.
 
+  **Status:** Theme system is implemented and working. `Ctrl+T` cycles
+  through themes for testing. Not yet exposed in the UI.
+
+  **Current themes defined in `THEMES` object:**
+  - `green-terminal` — default dark green, no CRT effect
+  - `green-terminal-crt` — same but with subtle CRT scanlines (`rgba(0,0,0,0.09)`)
+  - `dracula` — purple-tinted dark, cyan/green accent
+  - `solarized-light` — warm cream background, teal accent
+  - `github-light` — clean white, green/amber accent
+
+  **Exact theme definitions to restore:**
+  ```javascript
+  const THEMES = {
+    'green-terminal': {
+      '--bg': '#0d0f0e', '--surface': '#141714', '--surface2': '#1a1d1a',
+      '--border': '#2a2e2a',
+      '--green': '#39ff6a', '--green-dim': '#1a7a35', '--green-faint': '#0d3319',
+      '--amber': '#ffb830', '--amber-dim': '#7a5010',
+      '--red': '#ff4444',
+      '--text': '#c8d4c8', '--text-dim': '#5a6b5a', '--text-bright': '#e8f4e8',
+      '--tooltip-bg': '#1e1a0e', '--tooltip-text': '#e8f4e8',
+      '--scanline': 'transparent',
+    },
+    'green-terminal-crt': {
+      '--bg': '#0d0f0e', '--surface': '#141714', '--surface2': '#1a1d1a',
+      '--border': '#2a2e2a',
+      '--green': '#39ff6a', '--green-dim': '#1a7a35', '--green-faint': '#0d3319',
+      '--amber': '#ffb830', '--amber-dim': '#7a5010',
+      '--red': '#ff4444',
+      '--text': '#c8d4c8', '--text-dim': '#5a6b5a', '--text-bright': '#e8f4e8',
+      '--tooltip-bg': '#1e1a0e', '--tooltip-text': '#e8f4e8',
+      '--scanline': 'rgba(0,0,0,0.09)',
+    },
+    'dracula': {
+      '--bg': '#282a36', '--surface': '#313442', '--surface2': '#3a3d4e',
+      '--border': '#44475a',
+      '--green': '#50fa7b', '--green-dim': '#1e6b35', '--green-faint': '#0d2e1a',
+      '--amber': '#ffb86c', '--amber-dim': '#7a5020',
+      '--red': '#ff5555',
+      '--text': '#f8f8f2', '--text-dim': '#6272a4', '--text-bright': '#ffffff',
+      '--tooltip-bg': '#1e1a2e', '--tooltip-text': '#f8f8f2',
+      '--scanline': 'rgba(0,0,0,0.07)',
+    },
+    'solarized-light': {
+      '--bg': '#fdf6e3', '--surface': '#eee8d5', '--surface2': '#e8e0cc',
+      '--border': '#ccc4b0',
+      '--green': '#2aa198', '--green-dim': '#1a6b65', '--green-faint': '#d4efed',
+      '--amber': '#b58900', '--amber-dim': '#7a5c00',
+      '--red': '#dc322f',
+      '--text': '#657b83', '--text-dim': '#93a1a1', '--text-bright': '#073642',
+      '--scanline': 'transparent',
+      '--tooltip-bg': '#eee8d5', '--tooltip-text': '#073642',
+    },
+    'github-light': {
+      '--bg': '#ffffff', '--surface': '#f6f8fa', '--surface2': '#eaeef2',
+      '--border': '#d0d7de',
+      '--green': '#1a7f37', '--green-dim': '#2da44e', '--green-faint': '#dafbe1',
+      '--amber': '#9a6700', '--amber-dim': '#bf8700',
+      '--red': '#cf222e',
+      '--text': '#1f2328', '--text-dim': '#656d76', '--text-bright': '#000000',
+      '--scanline': 'transparent',
+      '--tooltip-bg': '#f6f8fa', '--tooltip-text': '#1f2328',
+    },
+  };
+  ```
+
+  **Remaining work:**
+
+  1. **Rename CSS variables** to role-based names (do alongside file split):
+
+     | Current | Proposed | Role |
+     |---|---|---|
+     | `--bg` | `--color-bg` | Page background |
+     | `--surface` | `--color-surface` | Elevated surface |
+     | `--surface2` | `--color-surface-hover` | Hover/active surface |
+     | `--border` | `--color-border` | Borders and dividers |
+     | `--green` | `--color-accent` | Primary accent (logo, active states) |
+     | `--green-dim` | `--color-accent-dim` | Dimmed accent |
+     | `--green-faint` | `--color-accent-faint` | Active row background |
+     | `--amber` | `--color-highlight` | Secondary highlight (freq, scan bar) |
+     | `--amber-dim` | `--color-highlight-dim` | Dimmed highlight |
+     | `--red` | `--color-danger` | Errors, warnings |
+     | `--text` | `--color-text` | Body text |
+     | `--text-dim` | `--color-text-dim` | Muted/secondary text |
+     | `--text-bright` | `--color-text-bright` | High emphasis text |
+     | `--scanline` | `--effect-scanline` | CRT scanline overlay |
+     | `--tooltip-bg` | `--color-tooltip-bg` | Tooltip background |
+     | `--tooltip-text` | `--color-tooltip-text` | Tooltip text |
+
+  2. **Add theme picker UI** — a small dropdown or swatch row, probably in
+     a settings popover or the header. Remove the `Ctrl+T` dev shortcut
+     once the UI is in place.
+
+  3. **Consider more themes** — Monokai, Nord, One Dark, high-contrast
+     accessibility theme.
+
+  **Notes:**
+  - Each theme must set ALL variables — no partial overrides, since
+    switching themes doesn't reset variables not present in the new theme
+    (they bleed from the previous theme).
+  - `--scanline: transparent` disables the CRT effect for light themes.
+  - Do the variable rename alongside the file split — ~80-100 occurrences,
+    mechanical find-and-replace, low risk.
+
 ---
 
 ## [PLANNED] Split PotaSpotHunter.html into separate files
