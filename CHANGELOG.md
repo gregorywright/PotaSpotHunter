@@ -1,4 +1,6 @@
 ## [Unreleased]
+
+## [1.7.0] - 2026-03-31
 ### Added
 - Rig backend dropdown moved from toolbar to header bar, alongside the
   awards badge and map button.
@@ -6,7 +8,13 @@
   a rig does nothing useful. Pills re-enable when a backend is selected.
   Tooltip on the pill group explains why they are disabled.
 - "Set callsign" award button renamed to "Track Awards".
-- Themes support added to TODO list.
+### Changed
+- Auto Scan no longer stops on any click — only stops when clicking a
+  spot row or interacting with the scan pill control. Allows resizing the
+  map, changing filters, and other UI interactions without interrupting
+  a running scan.
+- Map/table split minimum loosened from 25% to 5% — allows nearly
+  full-screen map or nearly full-screen spot list.
 ### Fixed
 - All remaining native browser `title=` tooltips replaced with custom
   styled tooltips (`data-tip=`).
