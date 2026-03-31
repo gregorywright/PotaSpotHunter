@@ -1,4 +1,6 @@
 ## [Unreleased]
+
+## [1.8.0] - 2026-03-31
 ### Changed
 - `PotaSpotHunter.html` split into `www/index.html`, `www/style.css`,
   and `www/app.js`. The proxy serves all three files directly — no build

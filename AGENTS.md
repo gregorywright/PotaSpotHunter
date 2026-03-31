@@ -359,7 +359,7 @@ git push origin mainline --tags
 
 ## Current version
 
-`VERSION` file contains `1.7.0`. The next release will be v1.8.0 (or v1.7.1
+`VERSION` file contains `1.8.0`. The next release will be v1.9.0 (or v1.8.1
 if the next changes are patch-level). Unreleased changes are tracked in
 `CHANGELOG.md` under `[Unreleased]`.
 
