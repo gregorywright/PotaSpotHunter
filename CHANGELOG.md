@@ -1,4 +1,10 @@
 ## [Unreleased]
+### Changed
+- `PotaSpotHunter.html` split into `www/index.html`, `www/style.css`,
+  and `www/app.js`. The proxy serves all three files directly — no build
+  step required. `PotaSpotHunter.html` is retained in the repo root as
+  a legacy reference. Release ZIP now contains `www/` instead of the
+  single HTML file.
 
 ## [1.7.0] - 2026-03-31
 ### Added

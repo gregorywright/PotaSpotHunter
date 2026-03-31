@@ -123,8 +123,8 @@ jobs:
           VERSION="${{ steps.version.outputs.version }}"
           ZIP_NAME="PotaSpotHunter-v${VERSION}.zip"
 
-          zip "${ZIP_NAME}" \
-            PotaSpotHunter.html \
+          zip -r "${ZIP_NAME}" \
+            www/ \
             PotaProxy.py \
             VERSION \
             README.md \

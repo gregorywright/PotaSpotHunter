@@ -50,7 +50,7 @@ POTA Spot Hunter fetches active [Parks on the Air](https://parksontheair.com) ac
 
 Download the latest release ZIP from the [Releases page](https://github.com/gregorywright/PotaSpotHunter/releases/latest) and unzip it. You'll get a few files including:
 
-- `PotaSpotHunter.html` — the web app
+- `www/` — the web app (HTML, CSS, JavaScript)
 - `PotaProxy.py` — the local proxy server
 
 Keep all the files in the same folder.
@@ -77,7 +77,7 @@ The app is split into two files that work together:
 
 | File | Purpose |
 |---|---|
-| `PotaSpotHunter.html` | The web UI — runs in any modern browser |
+| `www/index.html` | The web UI — served by the proxy at `http://localhost:8080/` |
 | `PotaProxy.py` | Local Python proxy — bridges the browser to rig-control software |
 
 The browser cannot talk directly to MacLoggerDX, flrig, or rigctld because of the browser's same-origin security policy. The proxy runs locally on your machine, accepts simple HTTP requests from the web page, and forwards commands to whichever rig-control backend you have configured.
@@ -258,8 +258,11 @@ See the `FlrigBackend` and `RigctldBackend` classes for worked examples.
 
 ```
 PotaSpotHunter/
-├── PotaSpotHunter.html   # Web UI — open this in your browser
-├── PotaProxy.py         # Local proxy server
+├── www/                  # Web app — served by the proxy
+│   ├── index.html        # HTML shell
+│   ├── style.css         # All styles
+│   └── app.js            # All JavaScript
+├── PotaProxy.py          # Local proxy server
 ├── LICENSE               # MIT License
 ├── .gitignore
 ├── CHANGELOG.md          # Version history

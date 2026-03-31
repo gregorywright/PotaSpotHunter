@@ -1,0 +1,854 @@
+  /* ── Reset & base ─────────────────────────────────────── */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:        #0d0f0e;
+    --surface:   #141714;
+    --surface2:  #1a1d1a;
+    --border:    #2a2e2a;
+    --green:     #39ff6a;
+    --green-dim: #1a7a35;
+    --green-faint: #0d3319;
+    --amber:     #ffb830;
+    --amber-dim: #7a5010;
+    --red:       #ff4444;
+    --text:      #c8d4c8;
+    --text-dim:  #5a6b5a;
+    --text-bright: #e8f4e8;
+    --mono:      'Share Tech Mono', monospace;
+    --ui:        'Barlow Condensed', sans-serif;
+  }
+
+  html, body {
+    height: 100%;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--ui);
+    font-size: 15px;
+    letter-spacing: 0.01em;
+  }
+
+  /* ── Scanline overlay ─────────────────────────────────── */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(0,0,0,0.07) 2px,
+      rgba(0,0,0,0.07) 4px
+    );
+    pointer-events: none;
+    z-index: 1000;
+  }
+
+  /* ── Layout ───────────────────────────────────────────── */
+  #app {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 0 12px;
+    overflow: hidden;
+  }
+
+  /* The content area below controls+header holds the split panes */
+  #split-area {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    min-height: 0;
+  }
+
+  /* ── Header ───────────────────────────────────────────── */
+  header {
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    padding: 10px 0 8px;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+
+  /* Right-justified actions in the header row */
+  #header-actions {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+  }
+
+  .logo {
+    font-family: var(--mono);
+    font-size: 22px;
+    color: var(--green);
+    text-shadow: 0 0 12px rgba(57,255,106,0.5);
+    letter-spacing: 0.05em;
+    white-space: nowrap;
+  }
+
+  .logo span {
+    color: var(--amber);
+    text-shadow: 0 0 12px rgba(255,184,48,0.5);
+  }
+
+  /* Version number displayed after the logo text.
+     Smaller, dimmed — present but unobtrusive. */
+  #version-label {
+    font-size: 11px;
+    color: var(--text-dim);
+    letter-spacing: 0.08em;
+    margin-left: 10px;
+    text-shadow: none;
+    font-family: var(--mono);
+    vertical-align: middle;
+  }
+
+  #status-line {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+    flex: 1;
+    padding-left: 6px;
+  }
+
+  #status-line.loading { color: var(--amber); }
+  #status-line.error   { color: var(--red); }
+  #status-line.ok      { color: var(--green-dim); }
+
+  /* ── Controls bar ─────────────────────────────────────── */
+  #controls {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 0;
+    flex-shrink: 0;
+    flex-wrap: wrap;
+    border-bottom: 1px solid var(--border);
+  }
+
+  /* Each label+control pair is wrapped in .ctrl-group so they always
+     wrap as a single unit — the label never gets stranded on its own line. */
+  .ctrl-group {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  .ctrl-label {
+    font-family: var(--ui);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    white-space: nowrap;
+  }
+
+  select, button {
+    font-family: var(--ui);
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    background: var(--surface2);
+    color: var(--text-bright);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 4px 10px;
+    cursor: pointer;
+    outline: none;
+    transition: border-color 0.15s, background 0.15s;
+    -webkit-appearance: none;
+    appearance: none;
+  }
+
+  select {
+    padding-right: 28px;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%235a6b5a'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 8px center;
+  }
+
+  select:hover, select:focus { border-color: var(--green-dim); }
+  select option { background: #1a1d1a; }
+
+  /* Band select gets a green accent when a band is chosen */
+  select#band-select.active { border-color: var(--green); color: var(--green); }
+
+  button { text-transform: uppercase; letter-spacing: 0.1em; }
+
+  #btn-refresh {
+    border-color: var(--green-dim);
+    color: var(--green);
+    padding: 3px 7px;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  #btn-refresh svg { display: block; }
+  #btn-refresh:hover { background: var(--green-faint); border-color: var(--green); }
+  #btn-refresh:active { background: #0a2010; }
+  #btn-refresh.spinning svg { animation: spin 0.8s linear infinite; opacity: 0.5; }
+  #btn-refresh.spinning { cursor: default; }
+
+  /* ── Auto-scan pill control ───────────────────────────── */
+  #auto-scan-pills {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    overflow: hidden;
+  }
+  .scan-pill {
+    font-family: var(--ui);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    padding: 4px 8px;
+    background: var(--surface2);
+    color: var(--text-dim);
+    border: none;
+    border-right: 1px solid var(--border);
+    border-radius: 0;
+    cursor: pointer;
+    text-transform: uppercase;
+    transition: background 0.12s, color 0.12s;
+    white-space: nowrap;
+  }
+  .scan-pill:last-child { border-right: none; }
+  .scan-pill:hover { background: var(--surface); color: var(--text); }
+  .scan-pill:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+  }
+  .scan-pill:disabled:hover { background: var(--surface2); color: var(--text-dim); }
+  .scan-pill.active {
+    background: #0a2818;
+    color: var(--green);
+    border-right-color: var(--green-dim);
+    box-shadow: inset 0 0 0 1px var(--green-dim);
+  }
+  .scan-pill.active:hover { background: var(--green-faint); }
+  /* OFF pill when scanning — subtle red hint so it's obvious to click */
+  .scan-pill[data-dwell="0"].scanning-active {
+    color: var(--red);
+    border-right-color: #7a1010;
+  }
+
+
+
+  .spot-count {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text-dim);
+    margin-left: auto;
+    white-space: nowrap;
+  }
+  .spot-count strong { color: var(--green); }
+
+  /* ── Table wrapper ────────────────────────────────────── */
+  #table-wrap {
+    overflow-y: auto;
+    margin: 0 -12px;
+    padding: 0 12px;
+    /* height set by JS split logic */
+  }
+
+  /* Thin custom scrollbar */
+  #table-wrap::-webkit-scrollbar { width: 6px; }
+  #table-wrap::-webkit-scrollbar-track { background: var(--bg); }
+  #table-wrap::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+  /* ── Table ────────────────────────────────────────────── */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-family: var(--mono);
+    font-size: 12.5px;
+  }
+
+  thead {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background: var(--surface);
+  }
+
+  th {
+    font-family: var(--ui);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    padding: 6px 8px;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+    cursor: pointer;
+    user-select: none;
+  }
+
+  th:hover { color: var(--text); }
+  th.sort-asc::after  { content: ' ▲'; color: var(--green); font-size: 9px; }
+  th.sort-desc::after { content: ' ▼'; color: var(--green); font-size: 9px; }
+
+  td {
+    padding: 5px 8px;
+    border-bottom: 1px solid #181b18;
+    vertical-align: middle;
+    white-space: nowrap;
+  }
+
+  tr { transition: background 0.08s; }
+  tr:hover td { background: var(--surface2); cursor: pointer; }
+  /* Active spot gets a green background — combined with the amber left bar
+     it clearly distinguishes the currently selected/scanning spot. */
+  tr.scanning td { background: var(--green-faint); }
+  tr.scanning td.callsign { color: var(--green); text-shadow: 0 0 8px rgba(57,255,106,0.4); }
+
+  /* Column-specific styling */
+  td.freq    { color: var(--amber); font-size: 13px; letter-spacing: 0.04em; }
+  td.mode    { color: #8eb88e; font-size: 11px; letter-spacing: 0.08em; }
+  td.callsign { color: var(--text-bright); font-size: 13px; font-weight: bold; letter-spacing: 0.06em; }
+  td.ref     { color: #7ab4ff; font-size: 11px; }
+  td.park    { color: var(--text); max-width: 240px; overflow: hidden; text-overflow: ellipsis; font-family: var(--ui); font-size: 12px; }
+  td.parktype { text-align: center; font-size: 14px; width: 28px; min-width: 28px; }
+  td.loc     { color: var(--text-dim); font-size: 11px; }
+  td.age     { font-size: 11px; }
+  td.age.fresh  { color: var(--green); }
+  td.age.recent { color: #8eb88e; }
+  td.age.old    { color: var(--text-dim); }
+
+
+
+
+  /* ── Empty / loading states ───────────────────────────── */
+  #empty-state {
+    display: none;
+    text-align: center;
+    padding: 60px 20px;
+    color: var(--text-dim);
+    font-family: var(--mono);
+    font-size: 13px;
+    line-height: 2;
+  }
+
+  #empty-state .big { font-size: 32px; color: var(--border); display: block; margin-bottom: 12px; }
+
+  /* ── Footer ───────────────────────────────────────────── */
+  footer {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--text-dim);
+    padding: 6px 0;
+    border-top: 1px solid var(--border);
+    flex-shrink: 0;
+    display: flex;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+
+  footer a { color: var(--green-dim); text-decoration: none; }
+  footer a:hover { color: var(--green); }
+
+  /* ── Inline POTA links (callsign + park ref) ─────────── */
+  a.spot-link {
+    color: inherit;
+    text-decoration: none;
+    border-bottom: 1px dotted currentColor;
+    opacity: 0.9;
+  }
+  a.spot-link:hover {
+    opacity: 1;
+    border-bottom-style: solid;
+  }
+
+  /* ── "Connecting…" overlay shown during backend ping ─── */
+  #connecting-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.55);
+    z-index: 2500;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: wait;
+  }
+  #connecting-box {
+    background: var(--surface2);
+    border: 1px solid var(--amber-dim);
+    border-radius: 4px;
+    padding: 22px 36px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    font-family: var(--ui);
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    color: var(--amber);
+    box-shadow: 0 0 30px rgba(0,0,0,0.6);
+  }
+  #connecting-spinner {
+    font-size: 22px;
+    animation: spin 1s linear infinite;
+  }
+  @keyframes spin {
+    from { transform: rotate(0deg); }
+    to   { transform: rotate(360deg); }
+  }
+
+  /* ── Proxy-down full-screen overlay ──────────────────── */
+  #proxy-down-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.85);
+    z-index: 3000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  #proxy-down-box {
+    background: var(--surface2);
+    border: 1px solid var(--amber);
+    border-radius: 4px;
+    width: min(520px, 92vw);
+    box-shadow: 0 0 60px rgba(255,184,48,0.15);
+    font-family: var(--ui);
+  }
+  #proxy-down-icon {
+    font-size: 40px;
+    text-align: center;
+    padding: 20px 0 4px;
+    color: var(--amber);
+    text-shadow: 0 0 20px rgba(255,184,48,0.5);
+  }
+  #proxy-down-title {
+    text-align: center;
+    font-size: 16px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    color: var(--amber);
+    padding: 0 20px 14px;
+    border-bottom: 1px solid var(--border);
+  }
+  #proxy-down-body {
+    padding: 16px 20px;
+    font-size: 13px;
+    line-height: 1.65;
+    color: var(--text);
+  }
+  #proxy-down-body p    { margin-bottom: 8px; }
+  #proxy-down-body ul   { margin: 4px 0 10px 18px; }
+  #proxy-down-body li   { margin-bottom: 3px; }
+  #proxy-down-body pre  {
+    font-family: var(--mono);
+    font-size: 13px;
+    background: var(--surface);
+    border: 1px solid var(--green-dim);
+    border-radius: 3px;
+    padding: 8px 12px;
+    margin: 6px 0 12px;
+    color: var(--green);
+    letter-spacing: 0.04em;
+  }
+  #proxy-down-body strong { color: var(--text-bright); }
+  #proxy-down-body .note  {
+    font-size: 11px;
+    font-family: var(--mono);
+    color: var(--text-dim);
+    margin-top: 10px;
+  }
+  #proxy-down-footer {
+    padding: 12px 20px;
+    border-top: 1px solid var(--border);
+    text-align: center;
+  }
+  #proxy-down-retry {
+    font-family: var(--ui);
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    background: #1a1000;
+    color: var(--amber);
+    border: 1px solid var(--amber);
+    border-radius: 3px;
+    padding: 7px 28px;
+    cursor: pointer;
+    transition: background 0.12s;
+  }
+  #proxy-down-retry:hover { background: #2a1800; }
+
+  /* ── Rig error modal dialog ───────────────────────────── */
+  #rig-error-dialog {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.7);
+    z-index: 2000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  #rig-error-box {
+    background: var(--surface2);
+    border: 1px solid var(--red);
+    border-radius: 4px;
+    width: min(480px, 90vw);
+    box-shadow: 0 0 40px rgba(255,68,68,0.2);
+    font-family: var(--ui);
+  }
+  #rig-error-title {
+    background: #2a0a0a;
+    border-bottom: 1px solid var(--red);
+    padding: 10px 16px;
+    font-size: 14px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    color: var(--red);
+  }
+  #rig-error-body {
+    padding: 16px;
+    font-size: 13px;
+    line-height: 1.6;
+    color: var(--text);
+  }
+  #rig-error-body p  { margin-bottom: 8px; }
+  #rig-error-body ul { margin: 6px 0 8px 18px; }
+  #rig-error-body li { margin-bottom: 4px; }
+  #rig-error-body pre {
+    font-family: var(--mono);
+    font-size: 12px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 6px 10px;
+    margin: 6px 0 10px;
+    color: var(--green);
+  }
+  #rig-error-body strong { color: var(--text-bright); }
+  #rig-error-body em     { color: var(--amber); font-style: normal; }
+  #rig-error-body .detail {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-top: 10px;
+  }
+  #rig-error-footer {
+    padding: 10px 16px;
+    border-top: 1px solid var(--border);
+    text-align: right;
+  }
+  #rig-error-close {
+    font-family: var(--ui);
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    background: #2a0a0a;
+    color: var(--red);
+    border: 1px solid var(--red);
+    border-radius: 3px;
+    padding: 5px 18px;
+    cursor: pointer;
+  }
+  #rig-error-close:hover { background: #3a1010; }
+
+
+  /* ── Tooltip for park name overflow ──────────────────── */
+  td.park { position: relative; }
+
+
+  /* ── Map panel ────────────────────────────────────────── */
+  #map-panel {
+    display: none;
+    flex-direction: column;
+    overflow: hidden;
+    /* height set by JS split logic */
+  }
+  #map-panel.open { display: flex; }
+
+  /* Resize handle between table and map */
+  #split-divider {
+    flex-shrink: 0;
+    height: 6px;
+    background: var(--border);
+    cursor: ns-resize;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.15s;
+    position: relative;
+    z-index: 50;
+  }
+  #split-divider.visible { display: flex; }
+  #split-divider:hover,
+  #split-divider.dragging { background: var(--green-dim); }
+  #split-divider::after {
+    content: '';
+    width: 40px;
+    height: 2px;
+    border-radius: 1px;
+    background: var(--text-dim);
+  }
+  #split-divider:hover::after,
+  #split-divider.dragging::after { background: var(--green); }
+
+  #map-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 4px 0;
+    font-family: var(--ui);
+    font-size: 11px;
+    color: var(--text-dim);
+    flex-shrink: 0;
+    border-top: 1px solid var(--border);
+  }
+  #map-toolbar strong { color: var(--green-dim); }
+
+  #map-close {
+    margin-left: auto;
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    font-size: 13px;
+    line-height: 1;
+    padding: 1px 6px;
+    border-radius: 2px;
+    cursor: pointer;
+    letter-spacing: 0;
+    text-transform: none;
+    transition: color 0.12s, border-color 0.12s;
+  }
+  #map-close:hover { color: var(--red); border-color: var(--red); background: transparent; }
+
+  #map-container {
+    flex: 1;
+    min-height: 0;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    overflow: hidden;
+  }
+
+  /* Override Leaflet tile brightness so tiles match the dark theme */
+  #map-container .leaflet-tile {
+    filter: brightness(0.75) saturate(0.7);
+  }
+
+  /* Leaflet popup styled to match the app */
+  .leaflet-popup-content-wrapper {
+    background: var(--surface2) !important;
+    color: var(--text) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: 3px !important;
+    box-shadow: 0 0 16px rgba(0,0,0,0.6) !important;
+    font-family: var(--ui) !important;
+    font-size: 13px !important;
+  }
+  .leaflet-popup-tip {
+    background: var(--surface2) !important;
+  }
+  .leaflet-popup-content {
+    margin: 10px 14px !important;
+    line-height: 1.55 !important;
+  }
+  .map-popup-call {
+    font-family: var(--mono);
+    font-size: 14px;
+    font-weight: bold;
+    color: var(--text-bright);
+    letter-spacing: 0.06em;
+  }
+  .map-popup-freq {
+    color: var(--amber);
+    font-family: var(--mono);
+    font-size: 12px;
+  }
+  .map-popup-ref {
+    color: #7ab4ff;
+    font-family: var(--mono);
+    font-size: 11px;
+  }
+  .map-popup-park {
+    color: var(--text);
+    font-size: 12px;
+    margin-top: 3px;
+    max-width: 200px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* Toggle map button */
+  #btn-map {
+    border-color: #2a5a7a;
+    color: #7ab4ff;
+  }
+  #btn-map:hover { background: #0a1a2a; border-color: #7ab4ff; }
+  #btn-map.active {
+    background: #0a1a2a;
+    border-color: #7ab4ff;
+    color: #aad4ff;
+  }
+
+  /* Awards badge button */
+  #btn-awards {
+    border-color: #5a4a1a;
+    color: var(--amber);
+    font-size: 12px;
+    white-space: nowrap;
+  }
+  #btn-awards:hover { background: #1a1200; border-color: var(--amber); }
+  #btn-awards.active { background: #1a1200; border-color: var(--amber); }
+
+  /* Awards popover */
+  #awards-popover {
+    display: none;
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 0;
+    width: 420px;
+    background: #1a1e1a;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 14px;
+    z-index: 200;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+    font-size: 15px;
+  }
+  #awards-popover.open { display: block; }
+  #awards-popover h3 {
+    margin: 0 0 10px;
+    font-size: 15px;
+    color: var(--amber);
+    font-family: var(--mono);
+  }
+  #awards-callsign-row {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 12px;
+  }
+  #awards-callsign-input {
+    flex: 1;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-family: var(--mono);
+    font-size: 15px;
+    text-transform: uppercase;
+  }
+  #awards-callsign-input:focus { outline: none; border-color: var(--amber); }
+  #awards-callsign-save {
+    padding: 4px 10px;
+    font-size: 14px;
+  }
+  #awards-progress { line-height: 2; font-size: 14px; }
+  .awards-tier-name { color: var(--amber); font-weight: bold; font-size: 15px; }
+  .awards-progress-bar {
+    height: 6px;
+    background: var(--border);
+    border-radius: 3px;
+    margin: 4px 0 8px;
+    overflow: hidden;
+  }
+  .awards-progress-fill {
+    height: 100%;
+    background: var(--amber);
+    border-radius: 3px;
+    transition: width 0.3s;
+  }
+  .awards-endorsements {
+    margin-top: 8px;
+    font-size: 13px;
+    color: var(--text-dim);
+    line-height: 1.8;
+  }
+  .awards-endorsements span.have { color: var(--green); }
+  .awards-endorsements span.need { color: var(--text-dim); }
+
+  /* Highlighted marker for selected row */
+  .marker-selected {
+    filter: drop-shadow(0 0 6px rgba(57,255,106,0.9));
+  }
+
+  /* ── Active spot / auto-scan row highlight ───────────── */
+  /* The active spot (tr.scanning) gets:
+     - A green background on all cells (repurposed from the old tuned state)
+     - An amber inset bar on the first cell (zero layout cost, box-shadow)
+     Both are solid when the spot is selected manually or scan is paused.
+     Both pulse together when auto-scan is running (.active-scan class),
+     giving a unified "currently scanning here" visual. */
+  tr.scanning td:first-child {
+    box-shadow: inset 3px 0 0 0 rgba(255,184,48,0.9);
+  }
+
+  /* Green background + amber bar both pulse in sync via the same animation.
+     Two keyframe blocks share the same 1.4s timing so they stay locked. */
+  @keyframes scan-bar-pulse {
+    0%   { box-shadow: inset 3px 0 0 0 rgba(255,184,48,0.9); }
+    50%  { box-shadow: inset 3px 0 0 0 rgba(255,184,48,0.25); }
+    100% { box-shadow: inset 3px 0 0 0 rgba(255,184,48,0.9); }
+  }
+  @keyframes scan-bg-pulse {
+    0%   { background-color: var(--green-faint); }
+    50%  { background-color: transparent; }
+    100% { background-color: var(--green-faint); }
+  }
+  tr.scanning.active-scan td:first-child {
+    animation: scan-bar-pulse 1.4s ease-in-out infinite;
+  }
+  tr.scanning.active-scan td {
+    animation: scan-bg-pulse 1.4s ease-in-out infinite;
+  }
+  /* first-child gets both animations — bar pulse takes priority for box-shadow,
+     bg pulse handles background. Declare bar last so it wins on first-child. */
+  tr.scanning.active-scan td:first-child {
+    animation: scan-bg-pulse 1.4s ease-in-out infinite,
+               scan-bar-pulse 1.4s ease-in-out infinite;
+  }
+
+  /* ── New spot badge ───────────────────────────────────── */
+  /* Shown in the New column for spots that appeared in the most recent
+     refresh.  Cleared automatically on the next refresh cycle. */
+  td.new-spot {
+    text-align: center;
+    font-size: 14px;
+    color: var(--green);
+    text-shadow: 0 0 8px rgba(57,255,106,0.6);
+  }
+  /* ── Custom tooltip ──────────────────────────────────── */
+  /* Replaces native title= tooltips for consistent styling and
+     faster/configurable delay. Triggered by data-tip attributes.
+     Uses event delegation on the table — one listener, not one per cell. */
+  #tooltip {
+    position: fixed;
+    z-index: 9000;
+    background: #1e1a0e;
+    border: 1px solid var(--amber);
+    color: var(--text);
+    font-family: var(--ui);
+    font-size: 12px;
+    padding: 5px 9px;
+    border-radius: 3px;
+    pointer-events: none;
+    white-space: pre-wrap;
+    max-width: 320px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.5);
+    opacity: 0;
+    transition: opacity 0.1s;
+  }
+  #tooltip.visible { opacity: 1; }

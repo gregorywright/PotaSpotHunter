@@ -793,19 +793,27 @@ class ProxyHandler(BaseHTTPRequestHandler):
         path     = parsed.path.rstrip("/")
         qs       = parse_qs(parsed.query)
 
-        # ── Route: / — serve PotaSpotHunter.html over HTTP ──
+        # ── Static file serving from www/ ───────────────────
+        # The app is split into www/index.html, www/style.css, www/app.js.
         # Serving over HTTP (rather than file://) gives the page a real
         # origin (http://localhost:8080), which the browser sends as the
-        # Referer header on tile requests to OpenStreetMap. Without this,
-        # file:// pages send no Referer and OSM intermittently returns 403r.
-        if path == "" or path == "/":
-            html_path = pathlib.Path(__file__).parent / "PotaSpotHunter.html"
-            if not html_path.exists():
-                self._send_error(404, "PotaSpotHunter.html not found")
+        # Referer header on tile requests to OpenStreetMap.
+        WWW = pathlib.Path(__file__).parent / "www"
+        STATIC = {
+            "":          ("index.html",  "text/html; charset=utf-8"),
+            "/":         ("index.html",  "text/html; charset=utf-8"),
+            "/style.css": ("style.css",  "text/css; charset=utf-8"),
+            "/app.js":    ("app.js",     "application/javascript; charset=utf-8"),
+        }
+        if path in ("", "/") or path in STATIC:
+            filename, content_type = STATIC.get(path, STATIC[""])
+            file_path = WWW / filename
+            if not file_path.exists():
+                self._send_error(404, f"{filename} not found in www/")
                 return
-            content = html_path.read_bytes()
+            content = file_path.read_bytes()
             self.send_response(200)
-            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Type", content_type)
             self.send_header("Content-Length", str(len(content)))
             self.end_headers()
             self.wfile.write(content)
@@ -1020,13 +1028,9 @@ def main():
     # Bind to localhost only — never expose this to the network.
     server = HTTPServer(("127.0.0.1", args.port), ProxyHandler)
 
-    # Resolve the HTML file path relative to this script's location.
-    # This works whether the script is run from its own directory or
-    # from a different working directory (e.g. ~/Scripts/pota_proxy.py
-    # will look for ~/Scripts/POTASpotHunter.html).
-    # pathlib is imported at the top of this file (needed for VERSION too).
+    # Resolve the www/ directory path relative to this script's location.
     script_dir = pathlib.Path(__file__).parent.resolve()
-    html_path  = script_dir / "POTASpotHunter.html"
+    html_path  = script_dir / "www" / "index.html"
 
     log.info("=" * 60)
     log.info("POTA Spot Hunter v%s  —  listening on 127.0.0.1:%d", APP_VERSION, args.port)

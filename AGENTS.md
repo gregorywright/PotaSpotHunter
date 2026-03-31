@@ -40,9 +40,12 @@ ham radio with one click.
 
 | File | Purpose |
 |------|---------|
-| `PotaSpotHunter.html` | Self-contained single-file browser UI |
+| `www/index.html` | HTML shell — served by proxy at `http://localhost:{port}/` |
+| `www/style.css` | All CSS styles |
+| `www/app.js` | All JavaScript |
+| `PotaSpotHunter.html` | Legacy single-file version — kept for reference/fallback |
 | `PotaProxy.py` | Local Python HTTP proxy on localhost:8080 |
-| `VERSION` | Single source of truth for version number (e.g. `1.4.0`, no `v` prefix) |
+| `VERSION` | Single source of truth for version number (e.g. `1.7.0`, no `v` prefix) |
 | `CHANGELOG.md` | Version history in keep-a-changelog style |
 | `AGENTS.md` | This file — AI steering document |
 | `requirements.txt` | Intentionally empty — no third-party dependencies |
@@ -344,6 +347,7 @@ git push origin mainline --tags
 - Go to https://github.com/gregorywright/PotaSpotHunter/releases
 - Click the pencil/edit icon on the draft
 - Review title, notes, and zip attachment
+- **Verify the ZIP contains `www/` directory** (not `PotaSpotHunter.html` — this changed in v1.8.0)
 - Click **Publish release** at the bottom
 
 ### Monitoring the workflow
@@ -384,11 +388,9 @@ if the next changes are patch-level). Unreleased changes are tracked in
 
 ## Development notes
 
-- `PotaSpotHunter.html` is entirely self-contained — no build step, no npm,
-  no bundler. Open directly in a browser (after starting the proxy).
-- **Planned:** split into `index.html` + `style.css` + `app.js`, served
-  directly by the proxy. No build step needed — proxy already serves the
-  HTML over HTTP. See TODO.md for the full plan.
+- The app is split into `www/index.html`, `www/style.css`, and `www/app.js`.
+  Edit files in `www/` and reload the browser — no build step needed.
+  `PotaSpotHunter.html` is kept as a legacy reference/fallback.
 - `PotaProxy.py` requires Python 3.6+ and no third-party packages.
 - The HTML file is ~2500 lines. Always read the relevant section before
   editing — don't rely on memory of exact whitespace.

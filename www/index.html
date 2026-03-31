@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<!--
+  Copyright (c) 2025 Gregory Wright (W7GFW) <greg@gregorywright.org>
+  SPDX-License-Identifier: MIT
+  https://github.com/gregorywright/PotaSpotHunter
+
+  POTASpotHunter.html
+  ====================
+  A self-contained local web app for browsing live POTA activator spots
+  and tuning MacLoggerDX to them with a single click.
+
+  HOW IT WORKS
+  ------------
+  1. On load, fetches https://api.pota.app/spot/activator via the browser.
+  2. Displays spots in a filterable, sortable table.
+  3. Clicking "Tune" on any row fires two MacLoggerDX URL scheme calls:
+       mldx://tune?freq=XX.XXX&mode=YYY   -- tunes the VFO
+       mldx://lookup?call=CALLSIGN         -- triggers QRZ/HamCall lookup
+     MacLoggerDX handles both natively (no AppleScript needed for clicks).
+  4. A "Refresh" button re-fetches the API without reloading the page.
+
+  MACLOGGERdx URL SCHEME
+  ----------------------
+  Documented at:
+    https://dogparksoftware.com/MacLoggerDX%20Help/mldxfc_script.html
+  Supported URLs used here:
+    mldx://tune?freq=14.074&mode=FT8
+      - Sets VFO frequency (MHz) and mode.
+      - When a radio is connected, physically tunes the radio.
+      - When no radio, sets the displayed frequency/mode.
+    mldx://lookup?call=W1AW
+      - Triggers async QRZ/HamCall lookup for the callsign.
+      - Populates name, QTH, DXCC, grid etc. in the DX/Contest panel.
+  NOTE: The mldx:// scheme requires MacLoggerDX to be running and
+  registered as the handler for that URL scheme (it registers itself
+  on first launch).
+
+  NOTE ON setNOTE / POTA PARK REFERENCE
+  --------------------------------------
+  The mldx:// URL scheme does not expose a setNOTE equivalent, so the
+  park reference cannot be pre-filled via URL alone. As a workaround,
+  the park reference is shown prominently in the UI so the operator can
+  type it into MacLoggerDX's Note field manually. A future enhancement
+  could use a companion AppleScript called via a custom URL handler or
+  osascript, but that is out of scope for this version.
+
+  POTA API
+  --------
+  Endpoint : https://api.pota.app/spot/activator
+  Fields used:
+    activator    - operator callsign
+    frequency    - TX frequency in kHz (string)
+    mode         - operating mode string
+    reference    - POTA park reference (e.g. "US-1234")
+    name         - park name
+    locationDesc - state/country (e.g. "US-TX")
+    spotTime     - ISO-8601 UTC timestamp
+    comments     - free text; spots with "QRT" are filtered out
+    expire       - seconds until spot expires (used for age display)
+    latitude     - park latitude (decimal degrees)
+    longitude    - park longitude (decimal degrees)
+
+  US AMATEUR RADIO BANDS (FCC Part 97)
+  -------------------------------------
+  Source: https://www.arrl.org/frequency-allocations
+    160m :  1800 -  2000 kHz
+     80m :  3500 -  4000 kHz
+     60m :  5330 -  5407 kHz
+     40m :  7000 -  7300 kHz
+     30m : 10100 - 10150 kHz
+     20m : 14000 - 14350 kHz
+     17m : 18068 - 18168 kHz
+     15m : 21000 - 21450 kHz
+     12m : 24890 - 24990 kHz
+     10m : 28000 - 29700 kHz
+      6m : 50000 - 54000 kHz
+      2m : 144000 - 148000 kHz
+
+  DESIGN
+  ------
+  Aesthetic: utilitarian radio shack -- dark background, phosphor-green
+  accents, monospace data, a hint of vintage spectrum analyzer.
+  Fonts: "Share Tech Mono" (data/callsigns) + "Barlow Condensed" (UI).
+-->
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="referrer" content="strict-origin-when-cross-origin">
+<title>POTA Spot Hunter</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Barlow+Condensed:wght@300;400;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin=""/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<div id="tooltip"></div>
+<div id="app">
+
+  <!-- Header -->
+  <header>
+    <div class="logo">POTA <span>&#9658;</span> SPOT HUNTER<span id="version-label"></span></div>
+    <div id="status-line">Initialising...</div>
+    <div id="header-actions">
+      <span class="ctrl-group">
+        <span class="ctrl-label">Rig</span>
+        <select id="rig-select">
+          <option value="mldx">MacLoggerDX</option>
+          <option value="flrig">flrig</option>
+          <option value="rigctld">rigctld</option>
+          <option value="none" selected>None</option>
+        </select>
+      </span>
+      <div style="position:relative">
+        <button id="btn-awards" data-tip="Track your POTA hunter awards">🏆 Track Awards</button>
+        <div id="awards-popover">
+          <h3>🏆 Hunter Awards</h3>
+          <div id="awards-callsign-row">
+            <input id="awards-callsign-input" type="text" maxlength="12"
+              placeholder="Your callsign" autocomplete="off" spellcheck="false">
+            <button id="awards-callsign-save">Save</button>
+          </div>
+          <div id="awards-progress">
+            <span style="color:var(--text-dim);font-size:12px">Enter your callsign to see award progress.</span>
+          </div>
+        </div>
+      </div>
+      <button id="btn-map" data-tip="Toggle world map">&#9783; Map</button>
+    </div>
+  </header>
+
+  <!-- Controls -->
+  <div id="controls">
+    <span class="ctrl-group">
+      <span class="ctrl-label">Band</span>
+      <select id="band-select">
+        <option value="ALL">All</option>
+        <option value="160">160m</option>
+        <option value="80">80m</option>
+        <option value="60">60m</option>
+        <option value="40">40m</option>
+        <option value="30">30m</option>
+        <option value="20">20m</option>
+        <option value="17">17m</option>
+        <option value="15">15m</option>
+        <option value="12">12m</option>
+        <option value="10">10m</option>
+        <option value="6">6m</option>
+        <option value="2">2m</option>
+      </select>
+    </span>
+
+    <span class="ctrl-group">
+      <span class="ctrl-label">Mode</span>
+      <select id="mode-select">
+        <option value="ALL">All</option>
+        <option value="CW">CW</option>
+        <option value="SSB">SSB</option>
+        <option value="FT8">FT8</option>
+        <option value="FT4">FT4</option>
+        <option value="DIGITAL">Other Digital</option>
+      </select>
+    </span>
+
+
+    <span class="ctrl-group">
+      <span class="ctrl-label">Refresh</span>
+      <select id="refresh-interval">
+        <option value="2">2 min</option>
+        <option value="5">5 min</option>
+        <option value="10">10 min</option>
+        <option value="15">15 min</option>
+        <option value="30">30 min</option>
+        <option value="60">60 min</option>
+        <option value="0">Manual</option>
+      </select>
+      <button id="btn-refresh" data-tip="Fetch fresh spots from api.pota.app now">
+        <svg id="refresh-icon" width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M13.5 8A5.5 5.5 0 1 1 8 2.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+          <path d="M8 0.5L10.5 3.5L7.5 3.5Z" fill="currentColor"/>
+        </svg>
+      </button>
+    </span>
+
+
+    <span class="ctrl-group">
+      <span class="ctrl-label">Auto Scan</span>
+      <div id="auto-scan-pills" data-tip="Auto-tune dwell time per spot. Any click or keypress stops scanning.">
+        <button class="scan-pill active" data-dwell="0">Off</button>
+        <button class="scan-pill" data-dwell="5">5s</button>
+        <button class="scan-pill" data-dwell="10">10s</button>
+        <button class="scan-pill" data-dwell="30">30s</button>
+        <button class="scan-pill" data-dwell="60">1m</button>
+      </div>
+    </span>
+
+    <span class="spot-count" id="spot-count"></span>
+  </div>
+
+  <!-- Split area: table + resizable divider + map -->
+  <div id="split-area">
+
+  <!-- Table -->
+  <div id="table-wrap">
+    <table id="spot-table">
+      <thead>
+        <tr>
+          <th data-col="freq" class="sort-asc">Freq (kHz)</th>
+          <th data-col="mode">Mode</th>
+          <th data-col="callsign">Callsign</th>
+          <th data-col="ref">Park Ref</th>
+          <th data-col="parktype" data-tip="Park type — click to sort by type">Type</th>
+          <th data-col="park">Park Name</th>
+          <th data-col="loc">Location</th>
+          <th data-col="time">Last Heard</th>
+          <th data-col="new" data-tip="New since last refresh">New</th>
+        </tr>
+      </thead>
+      <tbody id="spot-tbody"></tbody>
+    </table>
+    <div id="empty-state">
+      <span class="big">&#9685;</span>
+      No spots match your filters.<br>
+      Try a different band or mode, or click Refresh for fresh data.
+    </div>
+  </div>
+
+  <!-- Drag handle -->
+  <div id="split-divider"></div>
+
+  <!-- Map panel -->
+  <div id="map-panel">
+    <div id="map-toolbar">
+      <strong id="map-spot-count"></strong>
+      <span id="map-hint">· Click a marker to select · Click a row to pan the map</span>
+      <button id="map-close" data-tip="Close map">&#10005;</button>
+    </div>
+    <div id="map-container"></div>
+  </div>
+
+  </div><!-- #split-area -->
+
+  <!-- Footer -->
+  <footer>
+    <span>Data: <a href="https://api.pota.app/spot/activator" target="_blank">api.pota.app</a> &nbsp;|&nbsp; MacLoggerDX URL scheme: <a href="https://dogparksoftware.com/MacLoggerDX%20Help/mldxfc_script.html" target="_blank">dogparksoftware.com</a></span>
+    <span id="last-fetch"></span>
+  </footer>
+
+</div><!-- #app -->
+
+<script src="/app.js"></script>
+</body>
+</html>
