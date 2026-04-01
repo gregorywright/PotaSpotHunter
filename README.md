@@ -10,15 +10,13 @@ POTA Spot Hunter fetches active [Parks on the Air](https://parksontheair.com) ac
 
 ## GIFS/Screenshots
 
-### Demo Gif
-
-![Demo](docs/screenshots/demo.gif)
-
 ### Screenshots
 
-![Main spot list](docs/screenshots/DefaultLaunchWindow.png)
+![Main spot list](docs/screenshots/Screenshot-1.png)
 
-![Filtering example](docs/screenshots/FilteredWindowExample.png)
+![Filtering example](docs/screenshots/Screenshot-2.png)
+
+![Theme example](docs/screenshots/Screenshot-3.png)
 
 ---
 
