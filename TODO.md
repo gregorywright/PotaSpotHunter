@@ -429,7 +429,9 @@ GET /lookup_calls?calls=W1AW,K8BSR,...
   across sessions via localStorage.
 
 - **Keyboard shortcuts** — j/k to move up/down the list, Enter to tune,
-  Space to pause/resume auto-scan.
+  Space to pause/resume auto-scan, Ctrl+T to cycle themes (already
+  implemented as a dev shortcut — keep or promote to documented shortcut
+  when theme picker UI is added).
 
 - **Spotter column** — show who posted the spot; useful for judging
   reliability. Already in the API response (`spotter` field).

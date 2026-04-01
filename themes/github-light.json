@@ -1,0 +1,13 @@
+{
+  "name": "github-light",
+  "description": "GitHub Light — clean white, familiar and high contrast",
+  "--bg": "#ffffff", "--surface": "#f6f8fa", "--surface2": "#eaeef2",
+  "--border": "#d0d7de",
+  "--green": "#1a7f37", "--green-dim": "#2da44e", "--green-faint": "#dafbe1",
+  "--amber": "#9a6700", "--amber-dim": "#bf8700",
+  "--red": "#cf222e",
+  "--text": "#1f2328", "--text-dim": "#656d76", "--text-bright": "#000000",
+  "--tooltip-bg": "#f6f8fa", "--tooltip-text": "#1f2328",
+  "--scanline": "transparent",
+  "--map-filter": "none"
+}

@@ -37,8 +37,8 @@
       0deg,
       transparent,
       transparent 2px,
-      rgba(0,0,0,0.07) 2px,
-      rgba(0,0,0,0.07) 4px
+      var(--scanline, rgba(0,0,0,0.07)) 2px,
+      var(--scanline, rgba(0,0,0,0.07)) 4px
     );
     pointer-events: none;
     z-index: 1000;
@@ -837,9 +837,9 @@
   #tooltip {
     position: fixed;
     z-index: 9000;
-    background: #1e1a0e;
+    background: var(--tooltip-bg, #1e1a0e);
     border: 1px solid var(--amber);
-    color: var(--text);
+    color: var(--tooltip-text, #e8f4e8);
     font-family: var(--ui);
     font-size: 12px;
     padding: 5px 9px;
@@ -847,7 +847,7 @@
     pointer-events: none;
     white-space: pre-wrap;
     max-width: 320px;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.5);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.3);
     opacity: 0;
     transition: opacity 0.1s;
   }

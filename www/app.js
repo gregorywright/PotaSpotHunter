@@ -916,14 +916,11 @@ function initMap() {
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution: '© <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a>',
     maxZoom: 18,
-    // OSM tile policy requires a Referer header. When served from file://
-    // the browser sends none by default, causing 403r errors on zoom.
-    // strict-origin-when-cross-origin sends the origin as Referer for
-    // cross-origin requests, which satisfies OSM's requirement.
     referrerPolicy: 'strict-origin-when-cross-origin',
   }).addTo(leafletMap);
 
   markersLayer = L.layerGroup().addTo(leafletMap);
+  applyMapFilter();  // apply current theme's --map-filter if set
 }
 
 // ── Active spot — unified selection model ────────────────
@@ -1825,3 +1822,102 @@ updateScanPills();  // disable scan pills if rig starts as None
     render();
   }
 })();
+
+// ── Themes ───────────────────────────────────────────────
+// One built-in default theme is hardcoded here. Additional themes are
+// loaded at startup from the /themes endpoint (themes/ directory).
+// Each theme is a flat object mapping CSS variable names to values.
+// All variables must be present in every theme — partial themes are not
+// supported since switching themes doesn't reset variables not in the
+// new theme (they bleed from the previous theme).
+//
+// Ctrl+T cycles through all loaded themes (built-in + external).
+
+const THEMES = {
+  'green-terminal': {
+    // Default — phosphor green on near-black. Classic ham radio terminal feel.
+    '--bg': '#0d0f0e', '--surface': '#141714', '--surface2': '#1a1d1a',
+    '--border': '#2a2e2a',
+    '--green': '#39ff6a', '--green-dim': '#1a7a35', '--green-faint': '#0d3319',
+    '--amber': '#ffb830', '--amber-dim': '#7a5010',
+    '--red': '#ff4444',
+    '--text': '#c8d4c8', '--text-dim': '#5a6b5a', '--text-bright': '#e8f4e8',
+    '--tooltip-bg': '#1e1a0e', '--tooltip-text': '#e8f4e8',
+    '--scanline': 'transparent',
+    '--map-filter': 'none',
+  },
+};
+
+function setTheme(name) {
+  const t = THEMES[name];
+  if (!t) return;
+  for (const [k, v] of Object.entries(t))
+    document.documentElement.style.setProperty(k, v);
+  localStorage.setItem('theme', name);
+  const sel = document.getElementById('theme-select');
+  if (sel) sel.value = name;
+  applyMapFilter();
+}
+
+// Apply the --map-filter CSS variable to the Leaflet tile pane.
+// Called after theme changes and after the map is first opened.
+// Allows themes to dim, invert, or otherwise filter map tiles.
+function applyMapFilter() {
+  if (!leafletMap) return;
+  const filter = getComputedStyle(document.documentElement)
+                   .getPropertyValue('--map-filter').trim() || 'none';
+  const pane = leafletMap.getPane('tilePane');
+  if (pane) pane.style.filter = filter;
+}
+
+function populateThemePicker() {
+  const sel = document.getElementById('theme-select');
+  if (!sel) return;
+  const current = localStorage.getItem('theme') || 'green-terminal';
+  sel.innerHTML = Object.keys(THEMES).sort().map(name =>
+    `<option value="${name}"${name === current ? ' selected' : ''}>${name}</option>`
+  ).join('');
+}
+
+// Restore saved theme on load (falls back to default if not found yet)
+setTheme(localStorage.getItem('theme') || 'green-terminal');
+populateThemePicker();
+
+// Theme picker dropdown
+document.getElementById('theme-select').addEventListener('change', e => {
+  setTheme(e.target.value);
+});
+
+// Load external themes from themes/ directory via proxy, then re-apply
+// saved theme in case it came from an external file.
+(async () => {
+  try {
+    const res = await fetch(`${PROXY_BASE}/themes`);
+    const { themes } = await res.json();
+    await Promise.all(themes.map(async name => {
+      try {
+        const r = await fetch(`${PROXY_BASE}/themes/${name}.json`);
+        const data = await r.json();
+        const vars = Object.fromEntries(
+          Object.entries(data).filter(([k]) => k.startsWith('--'))
+        );
+        THEMES[name] = vars;
+      } catch { /* skip malformed theme files */ }
+    }));
+    // Rebuild picker with all themes, re-apply saved theme
+    populateThemePicker();
+    setTheme(localStorage.getItem('theme') || 'green-terminal');
+  } catch { /* proxy not running or no themes dir — use built-in only */ }
+})();
+
+// Ctrl+T cycles through all loaded themes
+document.addEventListener('keydown', e => {
+  if (e.ctrlKey && e.key === 't') {
+    e.preventDefault();
+    const names = Object.keys(THEMES).sort();
+    const current = localStorage.getItem('theme') || 'green-terminal';
+    const next = names[(names.indexOf(current) + 1) % names.length];
+    setTheme(next);
+    console.log('Theme:', next);
+  }
+});

@@ -1,0 +1,13 @@
+{
+  "name": "solarized-light",
+  "description": "Solarized Light — warm cream background, muted tones",
+  "--bg": "#fdf6e3", "--surface": "#eee8d5", "--surface2": "#e8e0cc",
+  "--border": "#ccc4b0",
+  "--green": "#2aa198", "--green-dim": "#1a6b65", "--green-faint": "#d4efed",
+  "--amber": "#b58900", "--amber-dim": "#7a5c00",
+  "--red": "#dc322f",
+  "--text": "#657b83", "--text-dim": "#93a1a1", "--text-bright": "#073642",
+  "--tooltip-bg": "#eee8d5", "--tooltip-text": "#073642",
+  "--scanline": "transparent",
+  "--map-filter": "sepia(0.5)"
+}

@@ -827,11 +827,36 @@ class ProxyHandler(BaseHTTPRequestHandler):
             return
 
         # ── Route: /version ──────────────────────────────────
-        # Returns the app version from the VERSION file.
-        # Called by PotaSpotHunter.html at startup to display the version
-        # in the page header without duplicating it in the HTML source.
         if path == "/version":
             self._json_response(200, {"version": APP_VERSION})
+            return
+
+        # ── Route: /themes ───────────────────────────────────
+        # Returns a list of theme names available in the themes/ directory.
+        # The page fetches this at startup and loads each theme JSON file.
+        if path == "/themes":
+            themes_dir = pathlib.Path(__file__).parent / "themes"
+            if themes_dir.exists():
+                names = [f.stem for f in sorted(themes_dir.glob("*.json"))]
+            else:
+                names = []
+            self._json_response(200, {"themes": names})
+            return
+
+        # ── Route: /themes/<name>.json ───────────────────────
+        # Serves individual theme JSON files from the themes/ directory.
+        if path.startswith("/themes/") and path.endswith(".json"):
+            theme_file = pathlib.Path(__file__).parent / path.lstrip("/")
+            if not theme_file.exists() or not theme_file.is_file():
+                self._json_response(404, {"error": "Theme not found"})
+                return
+            content = theme_file.read_bytes()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(content)))
+            self._cors_headers()
+            self.end_headers()
+            self.wfile.write(content)
             return
 
         # ── Route: /ping/<backend> ───────────────────────────

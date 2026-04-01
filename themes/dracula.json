@@ -1,0 +1,13 @@
+{
+  "name": "dracula",
+  "description": "Dracula — purple-tinted dark theme with cyan/green accent",
+  "--bg": "#282a36", "--surface": "#313442", "--surface2": "#3a3d4e",
+  "--border": "#44475a",
+  "--green": "#50fa7b", "--green-dim": "#1e6b35", "--green-faint": "#0d2e1a",
+  "--amber": "#ffb86c", "--amber-dim": "#7a5020",
+  "--red": "#ff5555",
+  "--text": "#f8f8f2", "--text-dim": "#6272a4", "--text-bright": "#ffffff",
+  "--tooltip-bg": "#1e1a2e", "--tooltip-text": "#f8f8f2",
+  "--scanline": "rgba(0,0,0,0.07)",
+  "--map-filter": "invert(1) hue-rotate(180deg)"
+}
