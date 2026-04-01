@@ -1,5 +1,12 @@
 ## [Unreleased]
 
+## [1.9.1] - 2026-04-01
+### Fixed
+- Map button colors now use CSS variables so they update correctly when
+  switching themes.
+### Changed
+- Updated screenshots in README to show current UI including themes.
+
 ## [1.9.0] - 2026-04-01
 ### Added
 - **Theme system** — 🎨 dropdown in the header lets users switch color
