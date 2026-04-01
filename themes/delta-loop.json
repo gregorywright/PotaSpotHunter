@@ -1,6 +1,6 @@
 {
-  "name": "dracula",
-  "description": "Dracula — purple-tinted dark theme with cyan/green accent",
+  "name": "delta-loop",
+  "description": "Delta Loop — purple-tinted dark theme with cyan/green accent",
   "--bg": "#282a36", "--surface": "#313442", "--surface2": "#3a3d4e",
   "--border": "#44475a",
   "--green": "#50fa7b", "--green-dim": "#1e6b35", "--green-faint": "#0d2e1a",

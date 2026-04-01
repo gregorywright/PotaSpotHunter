@@ -48,6 +48,8 @@ ham radio with one click.
 | `VERSION` | Single source of truth for version number (e.g. `1.7.0`, no `v` prefix) |
 | `CHANGELOG.md` | Version history in keep-a-changelog style |
 | `AGENTS.md` | This file — AI steering document |
+| `THEMES.md` | Theme authoring guide — variable reference and examples |
+| `themes/*.json` | Color themes loaded at startup; users add themes here |
 | `requirements.txt` | Intentionally empty — no third-party dependencies |
 | `requirements-dev.txt` | Dev dependencies — pytest only; not shipped in release ZIP |
 | `build.py` | Developer utility — `python3 build.py test` runs the test suite |
@@ -359,7 +361,7 @@ git push origin mainline --tags
 
 ## Current version
 
-`VERSION` file contains `1.8.0`. The next release will be v1.9.0 (or v1.8.1
+`VERSION` file contains `1.9.0`. The next release will be v2.0.0 (or v1.9.1
 if the next changes are patch-level). Unreleased changes are tracked in
 `CHANGELOG.md` under `[Unreleased]`.
 
@@ -395,6 +397,9 @@ if the next changes are patch-level). Unreleased changes are tracked in
 - The HTML file is ~2500 lines. Always read the relevant section before
   editing — don't rely on memory of exact whitespace.
 - Always verify edits with a grep/check pass after making changes.
+- **Default theme** is `the-matrix` (pure black, digital rain green), hardcoded
+  in `www/app.js`. Additional themes live in `themes/*.json` and are loaded
+  at startup via the `/themes` proxy endpoint. See `THEMES.md` for authoring.
 - The branch is `mainline`.
 - **render() / setActiveSpot() call order is critical** — `render()` rebuilds
   `tbody.innerHTML` completely, destroying any classes on `<tr>` elements.

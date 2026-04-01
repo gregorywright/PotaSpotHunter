@@ -1,6 +1,6 @@
 {
-  "name": "github-light",
-  "description": "GitHub Light — clean white, familiar and high contrast",
+  "name": "mr-clean",
+  "description": "Mr. Clean — sparkling white, spotless, resistance is futile",
   "--bg": "#ffffff", "--surface": "#f6f8fa", "--surface2": "#eaeef2",
   "--border": "#d0d7de",
   "--green": "#1a7f37", "--green-dim": "#2da44e", "--green-faint": "#dafbe1",

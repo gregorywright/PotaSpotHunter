@@ -1,0 +1,13 @@
+{
+  "name": "firefly-browncoats",
+  "description": "Firefly Browncoats — dusty frontier western-in-space. Warm leather browns, amber light, sepia map.",
+  "--bg": "#1c1510", "--surface": "#251c14", "--surface2": "#2e2218",
+  "--border": "#4a3828",
+  "--green": "#c8a060", "--green-dim": "#7a5c28", "--green-faint": "#2a1e0a",
+  "--amber": "#e8922a", "--amber-dim": "#8a4e10",
+  "--red": "#c84030",
+  "--text": "#d4b896", "--text-dim": "#7a6048", "--text-bright": "#f0d8b0",
+  "--tooltip-bg": "#251c14", "--tooltip-text": "#f0d8b0",
+  "--scanline": "transparent",
+  "--map-filter": "sepia(0.7) brightness(0.85)"
+}

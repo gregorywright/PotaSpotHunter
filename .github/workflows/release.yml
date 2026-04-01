@@ -125,10 +125,12 @@ jobs:
 
           zip -r "${ZIP_NAME}" \
             www/ \
+            themes/ \
             PotaProxy.py \
             VERSION \
             README.md \
             CHANGELOG.md \
+            THEMES.md \
             LICENSE \
             requirements.txt
 

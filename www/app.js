@@ -1834,17 +1834,17 @@ updateScanPills();  // disable scan pills if rig starts as None
 // Ctrl+T cycles through all loaded themes (built-in + external).
 
 const THEMES = {
-  'green-terminal': {
-    // Default — phosphor green on near-black. Classic ham radio terminal feel.
-    '--bg': '#0d0f0e', '--surface': '#141714', '--surface2': '#1a1d1a',
-    '--border': '#2a2e2a',
-    '--green': '#39ff6a', '--green-dim': '#1a7a35', '--green-faint': '#0d3319',
-    '--amber': '#ffb830', '--amber-dim': '#7a5010',
-    '--red': '#ff4444',
-    '--text': '#c8d4c8', '--text-dim': '#5a6b5a', '--text-bright': '#e8f4e8',
-    '--tooltip-bg': '#1e1a0e', '--tooltip-text': '#e8f4e8',
-    '--scanline': 'transparent',
-    '--map-filter': 'none',
+  'the-matrix': {
+    // The Matrix — pure black, digital rain green. There is no spoon.
+    '--bg': '#000000', '--surface': '#0a0f0a', '--surface2': '#0f160f',
+    '--border': '#1a2a1a',
+    '--green': '#00ff41', '--green-dim': '#007a20', '--green-faint': '#001a08',
+    '--amber': '#00cc33', '--amber-dim': '#006618',
+    '--red': '#ff3333',
+    '--text': '#00cc33', '--text-dim': '#006618', '--text-bright': '#00ff41',
+    '--tooltip-bg': '#0a0f0a', '--tooltip-text': '#00ff41',
+    '--scanline': 'rgba(0,255,65,0.03)',
+    '--map-filter': 'brightness(0.6) saturate(0.4) hue-rotate(100deg)',
   },
 };
 
@@ -1873,14 +1873,14 @@ function applyMapFilter() {
 function populateThemePicker() {
   const sel = document.getElementById('theme-select');
   if (!sel) return;
-  const current = localStorage.getItem('theme') || 'green-terminal';
+  const current = localStorage.getItem('theme') || 'the-matrix';
   sel.innerHTML = Object.keys(THEMES).sort().map(name =>
     `<option value="${name}"${name === current ? ' selected' : ''}>${name}</option>`
   ).join('');
 }
 
 // Restore saved theme on load (falls back to default if not found yet)
-setTheme(localStorage.getItem('theme') || 'green-terminal');
+setTheme(localStorage.getItem('theme') || 'the-matrix');
 populateThemePicker();
 
 // Theme picker dropdown
@@ -1906,7 +1906,7 @@ document.getElementById('theme-select').addEventListener('change', e => {
     }));
     // Rebuild picker with all themes, re-apply saved theme
     populateThemePicker();
-    setTheme(localStorage.getItem('theme') || 'green-terminal');
+    setTheme(localStorage.getItem('theme') || 'the-matrix');
   } catch { /* proxy not running or no themes dir — use built-in only */ }
 })();
 
@@ -1915,7 +1915,7 @@ document.addEventListener('keydown', e => {
   if (e.ctrlKey && e.key === 't') {
     e.preventDefault();
     const names = Object.keys(THEMES).sort();
-    const current = localStorage.getItem('theme') || 'green-terminal';
+    const current = localStorage.getItem('theme') || 'the-matrix';
     const next = names[(names.indexOf(current) + 1) % names.length];
     setTheme(next);
     console.log('Theme:', next);

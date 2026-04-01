@@ -1,7 +1,7 @@
 # POTA Spot Hunter — Theme Guide
 
 Themes control the colors, map tile appearance, and visual effects of the app.
-The built-in `green-terminal` theme is hardcoded in the app. All other themes
+The built-in `the-matrix` theme is hardcoded in the app (pure black, digital rain green). All other themes
 live as `.json` files in the `themes/` directory and are loaded automatically
 at startup.
 
@@ -86,10 +86,11 @@ from the previously active theme).
 
 | File | Description |
 |---|---|
-| `dracula.json` | Purple-tinted dark, inverted map tiles |
-| `github-light.json` | Clean white, high contrast |
-| `green-terminal-crt.json` | Default green with CRT scanlines |
-| `opentopomap.json` | Earthy tones to complement topographic maps |
+| `delta-loop.json` | Purple-tinted dark, inverted map tiles |
+| `firefly-browncoats.json` | Dusty frontier western-in-space, sepia map |
+| `green-terminal-crt.json` | Classic ham radio terminal with CRT scanlines |
+| `locutus-of-borg.json` | Dark metallic Borg green, resistance is futile |
+| `mr-clean.json` | Sparkling white, high contrast |
 | `solarized-light.json` | Warm cream, sepia map tiles |
 
 ---

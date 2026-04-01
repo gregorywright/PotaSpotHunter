@@ -1,0 +1,13 @@
+{
+  "name": "locutus-of-borg",
+  "description": "Locutus of Borg — dark metallic grey with sickly green bioluminescent accents. Resistance is futile.",
+  "--bg": "#0a0c0a", "--surface": "#111411", "--surface2": "#1a1e1a",
+  "--border": "#2a3a2a",
+  "--green": "#00e040", "--green-dim": "#006820", "--green-faint": "#001a08",
+  "--amber": "#40c060", "--amber-dim": "#206030",
+  "--red": "#c04040",
+  "--text": "#90b890", "--text-dim": "#406040", "--text-bright": "#b0e0b0",
+  "--tooltip-bg": "#111411", "--tooltip-text": "#b0e0b0",
+  "--scanline": "rgba(0,60,0,0.12)",
+  "--map-filter": "brightness(0.5) saturate(0.3) hue-rotate(80deg)"
+}

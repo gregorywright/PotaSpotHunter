@@ -1,10 +1,12 @@
 ## [Unreleased]
+
+## [1.9.0] - 2026-04-01
 ### Added
 - **Theme system** — 🎨 dropdown in the header lets users switch color
   themes. Built-in `green-terminal` theme hardcoded in the app; additional
   themes loaded from `themes/` directory at startup. Themes persist across
   sessions via localStorage. Ctrl+T cycles themes.
-- Bundled themes: `dracula`, `github-light`, `green-terminal-crt`,
+- Bundled themes: `delta-loop`, `firefly-browncoats`, `green-terminal-crt`, `locutus-of-borg`, `mr-clean`, `solarized-light`. Built-in default: `the-matrix`.
   `opentopomap`, `solarized-light`.
 - `--map-filter` theme variable applies a CSS filter to map tiles — enables
   dark maps (`invert(1) hue-rotate(180deg)`), sepia tones, dimming, etc.
