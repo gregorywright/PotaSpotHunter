@@ -693,14 +693,14 @@
 
   /* Toggle map button */
   #btn-map {
-    border-color: #2a5a7a;
-    color: #7ab4ff;
+    border-color: var(--border);
+    color: var(--text);
   }
-  #btn-map:hover { background: #0a1a2a; border-color: #7ab4ff; }
+  #btn-map:hover { background: var(--surface2); border-color: var(--green-dim); color: var(--green); }
   #btn-map.active {
-    background: #0a1a2a;
-    border-color: #7ab4ff;
-    color: #aad4ff;
+    background: var(--surface2);
+    border-color: var(--green-dim);
+    color: var(--green);
   }
 
   /* Awards badge button */
