@@ -36,6 +36,7 @@ POTA Spot Hunter fetches active [Parks on the Air](https://parksontheair.com) ac
 - 🏕 **Park type icons** — a Type column shows an emoji for each park's type (National Park, State Forest, Wildlife Area, etc.), fetched in the background and updated dynamically as data arrives. Clicking the Type column header sorts spots by park type.
 - 🏆 **Award tracking** — enter your callsign once and the app fetches your POTA hunter profile. A badge in the header shows your current award tier and clicking it reveals a progress bar toward your next tier, plus band/mode endorsements earned so far.
 - 🌙 **Award hint icons** on spot rows — small icons flag spots that qualify for active award opportunities: Late Shift (🌙), Early Shift (🌅), New Years week (🎆), Support Your Parks event weekend (🎪), and bands not yet in your endorsements (✨). Shift windows are calculated from each park's longitude per POTA rules.
+- 🎛 **Multiple rig control backends:**
   - **MacLoggerDX** — full integration via AppleScript (frequency, mode, callsign lookup, park reference note)
   - **flrig** — frequency and mode via XML-RPC
   - **rigctld (Hamlib)** — frequency and mode via TCP
