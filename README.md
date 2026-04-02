@@ -1,8 +1,8 @@
 # POTA Spot Hunter
 
-**A live POTA activator spot browser with one-click rig control.**
+**A live POTA hunter's dashboard — spot browser, award tracker, and one-click rig control.**
 
-POTA Spot Hunter fetches active [Parks on the Air](https://parksontheair.com) activator spots from the [POTA API](https://api.pota.app), displays them in a clean filterable table, and lets you tune your radio to any spot with a single click. If you happen to be using MacLoggerDX, then this app will not only tune the radio, but also set the callsign, look up the callsign data, and set the comment field with the POTA reference. You can also use this app with no radio connected at all if you want.
+POTA Spot Hunter fetches active [Parks on the Air](https://parksontheair.com) activator spots from the [POTA API](https://api.pota.app) and gives hunters everything they need in one place: a filterable, sortable spot table with park type icons and age indicators; award tier progress and endorsement tracking tied to your callsign; hint icons that flag spots qualifying for active award events (Late Shift, Early Shift, New Years, Support Your Parks); an interactive world map; and one-click rig control for MacLoggerDX, flrig, and rigctld. Fully themeable. Works with no radio connected at all.
 
 > 🛠 **Status:** Active development. Tested on macOS with MacLoggerDX, flrig, and rigctld (Icom IC-7300).
 
