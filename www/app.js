@@ -1483,40 +1483,22 @@ async function startupProxyCheck() {
   setStatus('loading', 'Connecting to pota_proxy.py…');
 
   try {
-    // Fetch the proxy version and the mldx ping in parallel so startup
-    // is no slower than before. The version endpoint is always available
-    // as long as the proxy is running, regardless of rig backend.
-    const [versionRes, pingRes] = await Promise.all([
-      fetch(`${PROXY_BASE}/version`, { signal: AbortSignal.timeout(3000) }),
-      fetch(`${PROXY_BASE}/ping/mldx`, { signal: AbortSignal.timeout(3000) }),
-    ]);
-
+    // Only check that the proxy is running — don't ping any rig backend.
+    // Rig backend availability is checked when the user selects one.
+    // Pinging mldx at startup caused a spurious error on Windows and
+    // on any system where MacLoggerDX is not installed.
+    const versionRes = await fetch(`${PROXY_BASE}/version`,
+                                   { signal: AbortSignal.timeout(3000) });
     const versionData = await versionRes.json();
-    const data        = await pingRes.json();
 
-    // Display the version in the header logo area.
     const verLabel = document.getElementById('version-label');
     if (verLabel && versionData.version) {
       verLabel.textContent = 'v' + versionData.version;
     }
 
-    if (data.ok) {
-      // Proxy is up and MacLoggerDX is reachable — proceed normally.
-      setStatus('ok', 'Connected to proxy  ·  MacLoggerDX v' + (data.version || '?'));
-
-      // Start auto-refresh timer and load initial spot data.
-      startAutoRefresh();
-      fetchSpots().then(() => openMap());
-
-    } else {
-      // Proxy is up but MacLoggerDX is not running.
-      // Still let the page load — the operator may want to
-      // browse spots and switch to a different backend.
-      setStatus('error', 'Proxy running but MacLoggerDX unreachable: ' + (data.error || ''));
-      showRigError('mldx', false, data.error);
-      startAutoRefresh();
-      fetchSpots().then(() => openMap());
-    }
+    setStatus('ok', 'Connected to proxy');
+    startAutoRefresh();
+    fetchSpots().then(() => openMap());
 
   } catch (err) {
     // Proxy is not running at all — block the UI entirely.
@@ -1806,9 +1788,7 @@ document.addEventListener('click', e => {
 
 // Kick off the startup check.  Everything else waits for this.
 // Note: the rig dropdown defaults to "none" (set in the HTML), so
-// startupProxyCheck only needs to ping mldx — it does not need to
-// seed any previous-value tracker since pingRigBackend always falls
-// back to 'none' on error rather than a stored previous value.
+// Startup: verify proxy is running, then load spots.
 startupProxyCheck();
 updateScanPills();  // disable scan pills if rig starts as None
 

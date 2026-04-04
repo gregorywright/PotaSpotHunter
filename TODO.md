@@ -440,8 +440,13 @@ GET /lookup_calls?calls=W1AW,K8BSR,...
   times this activation has been spotted). A spot with count=12 is more
   reliable than count=1.
 
-- **Watchlist / alerts** — notify (sound or visual) when a specific
-  callsign or park reference appears in the spot list.
+- **Log4OM backend** — add `Log4OMBackend` to `PotaProxy.py` using UDP
+  remote control (port 2237, N1MM+-compatible format). Log4OM runs on
+  Windows/Linux/macOS. Functionality equivalent to MacLoggerDX: set
+  frequency, mode, callsign, comment field. UDP log listener on port 2237
+  for real-time QSO tracking (different format from MLDX port 9932).
+  See TODO entry for Worked Callsign Indicator for the backend interface
+  spec — Log4OM would implement the same three methods.
 
 - **Auto-scan index recovery** — when the spot list refreshes mid-scan,
   try to find the current spot by composite key in the new list before

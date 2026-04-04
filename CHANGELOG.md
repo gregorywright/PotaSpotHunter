@@ -1,4 +1,8 @@
 ## [Unreleased]
+### Fixed
+- Startup no longer pings MacLoggerDX — fixes spurious "mldx unreachable"
+  error on Windows and any system where MacLoggerDX is not installed.
+  Rig backend availability is now only checked when the user selects one.
 
 ## [1.9.1] - 2026-04-01
 ### Fixed

@@ -369,12 +369,6 @@ if the next changes are patch-level). Unreleased changes are tracked in
 
 ## Known issues / future work ideas
 
-- **Startup ping always checks MacLoggerDX** — `startupProxyCheck()` pings
-  `/ping/mldx` regardless of the user's chosen rig backend. If MacLoggerDX
-  is not running but flrig is, the page shows an error unnecessarily. The fix
-  would be to either ping all backends silently and only error if ALL fail, or
-  to remember the last-used backend and ping that one.
-
 - **Auto-scan and spot list refresh** — if the list refreshes mid-scan and
   the currently-scanning spot disappears, the scanner continues at the same
   index in the new list (which may be a different spot). This is intentional
