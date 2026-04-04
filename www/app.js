@@ -69,6 +69,50 @@ const BANDS = {
 
 // ── State ────────────────────────────────────────────────
 let allSpots     = [];
+
+// ── Worked cache (polled from proxy) ────────────────────
+// Snapshot of the proxy's worked_cache, keyed by callsign.
+// Populated by fetchWorked() after each spot refresh and by a
+// periodic poll when MLDX is active (so UDP-logged QSOs appear
+// within seconds, not at the next 2-minute spot refresh).
+let workedCache = {};
+let workedPollTimer = null;
+
+async function fetchWorked() {
+  try {
+    const r = await fetch(`${PROXY_BASE}/worked`);
+    const data = await r.json();
+    // Only re-render if the data actually changed.
+    if (JSON.stringify(data) !== JSON.stringify(workedCache)) {
+      workedCache = data;
+      render();
+    }
+  } catch { /* proxy not running or no data yet */ }
+}
+
+// Start polling /worked every 20s so UDP-logged QSOs appear quickly.
+// Safe to call multiple times — clears any existing timer first.
+function startWorkedPolling() {
+  if (workedPollTimer) clearInterval(workedPollTimer);
+  workedPollTimer = setInterval(fetchWorked, 20000);
+}
+
+function stopWorkedPolling() {
+  if (workedPollTimer) { clearInterval(workedPollTimer); workedPollTimer = null; }
+  workedCache = {};
+}
+
+// Enqueue all visible callsigns for AppleScript lookup, then fetch results.
+// The proxy checks whether the active backend supports get_worked — no need
+// to check here. If backend doesn't support it, proxy returns queued:0.
+async function lookupAndFetchWorked(spots) {
+  if (!spots.length) return;
+  const calls = [...new Set(spots.map(s => s.activator).filter(Boolean))];
+  try {
+    await fetch(`${PROXY_BASE}/lookup_calls?calls=${encodeURIComponent(calls.join(','))}`);
+    setTimeout(fetchWorked, 2000);
+  } catch { /* ignore */ }
+}
 // ── New-spot tracking ───────────────────────────────────
 // seenSpotKeys — composite keys of every spot seen across all refreshes.
 //   Grows each cycle; never cleared.  Used to detect genuinely new spots.
@@ -391,6 +435,7 @@ async function fetchSpots() {
     setStatus('ok', allSpots.length + ' active spots loaded.');
     render();
     fetchParkTypes();  // background — icons appear via debounced render as data arrives
+    lookupAndFetchWorked(allSpots);  // background — worked badges appear as data arrives
 
   } catch (err) {
     setStatus('error', 'Fetch failed: ' + err.message +
@@ -540,11 +585,52 @@ function render() {
     const hints    = spotAwardHints(s);
     const hintHTML = renderHintIcons(hints);
 
+    // ── Worked badge ──────────────────────────────────────
+    // Look up this callsign in the worked cache (populated from MLDX).
+    // null entry = lookup in-flight; missing = not yet queued.
+    const worked   = workedCache[callsign];
+    const spotBand = bandOf(freqKhz) ? bandOf(freqKhz) + 'm' : null;
+    // Collapse mode for POTA uniqueness: USB/LSB/AM → SSB
+    const spotMode = (['USB','LSB','AM'].includes(modeRaw)) ? 'SSB' : modeRaw;
+
+    let workedBadge = '';
+    let workedTip   = '';
+    if (worked && worked.count > 0) {
+      const lastStr = worked.last_date
+        ? new Date(worked.last_date).toLocaleDateString()
+        : 'unknown date';
+      workedTip = `Worked ${worked.count} time${worked.count !== 1 ? 's' : ''}. Last: ${lastStr}`;
+
+      let dot = '';
+      if (worked.worked_today) {
+        const bandMatch = worked.last_band && spotBand &&
+                          worked.last_band.toLowerCase() === spotBand.toLowerCase();
+        const modeMatch = worked.last_mode && worked.last_mode.toUpperCase() === spotMode;
+        const parkMatch = worked.last_park_ref && worked.last_park_ref === ref;
+
+        if (!worked.last_band) {
+          // AppleScript source — no band/mode info
+          dot = '<span style="color:var(--amber);margin-left:3px" data-tip="Worked today — band/mode unknown, possible dup">●</span>';
+          workedTip += '. Worked today — band/mode unknown, possible dup.';
+        } else if (bandMatch && modeMatch && parkMatch) {
+          dot = '<span style="color:var(--red);margin-left:3px" data-tip="Worked today on this band/mode at this park — no points">●</span>';
+          workedTip += `. Worked today on ${worked.last_band} ${worked.last_mode} at ${ref} — no points.`;
+        } else if (bandMatch && modeMatch) {
+          dot = '<span style="color:var(--red);margin-left:3px" data-tip="Worked today on this band/mode — likely no points">●</span>';
+          workedTip += `. Worked today on ${worked.last_band} ${worked.last_mode} — likely no points.`;
+        } else {
+          dot = '<span style="color:var(--amber);margin-left:3px" data-tip="Worked today on different band/mode — may still score">●</span>';
+          workedTip += '. Worked today on different band/mode — may still score.';
+        }
+      }
+      workedBadge = `<span style="color:var(--text-dim);font-size:10px;margin-left:4px">×${worked.count}</span>${dot}`;
+    }
+
     return `<tr data-id="${id}" data-freq="${esc(freqKhz)}" data-mode="${esc(modeRaw)}"
                 data-callsign="${esc(callsign)}" data-ref="${esc(ref)}" data-park="${esc(park)}">
       <td class="freq">${esc(freqKhz)}</td>
       <td class="mode">${esc(modeDisp)}</td>
-      <td class="callsign"><a class="spot-link" href="https://pota.app/#/profile/${esc(callsign)}" target="_blank" data-tip="https://pota.app/#/profile/${esc(callsign)}">${esc(callsign)}</a></td>
+      <td class="callsign" data-tip="${workedTip || ('https://pota.app/#/profile/' + esc(callsign))}"><a class="spot-link" href="https://pota.app/#/profile/${esc(callsign)}" target="_blank">${esc(callsign)}</a>${workedBadge}</td>
       <td class="ref"><a class="spot-link" href="https://pota.app/#/park/${esc(ref)}" target="_blank" data-tip="https://pota.app/#/park/${esc(ref)}">${esc(ref)}</a>${hintHTML ? ' '+hintHTML : ''}</td>
       <td class="parktype" data-tip="${esc(parkTypeCache[ref] || '')}">${
         parkTypeCache[ref] === undefined ? '' :        // not yet fetched — blank
@@ -1228,8 +1314,30 @@ document.addEventListener('mouseleave', hideTooltip);
 // gets instant feedback on whether the proxy / rig software is running.
 // On failure, pingRigBackend resets the dropdown to "none" automatically.
 document.getElementById('rig-select').addEventListener('change', e => {
-  pingRigBackend(e.target.value);
+  const backend = e.target.value;
+  pingRigBackend(backend);
   updateScanPills();
+  // Notify proxy to switch active backend (starts/stops UDP listener).
+  // For MLDX, also check if UDP broadcast is enabled in MLDX preferences
+  // and warn if not (Settings → Station → UDP Broadcast checkbox).
+  fetch(`${PROXY_BASE}/set_backend?backend=${encodeURIComponent(backend)}`)
+    .then(r => r.json())
+    .then(data => {
+      if (backend === 'mldx' && data.udp_pref && !data.udp_pref.enabled) {
+        setStatus('warning',
+          'MLDX UDP broadcast is off \u2014 worked-callsign dots won\u2019t update in real time. ' +
+          'Enable it in MacLoggerDX \u2192 Settings \u2192 Station \u2192 UDP Broadcast.');
+      }
+    })
+    .catch(() => {});
+  // If switching to MLDX, start polling /worked and seed the history.
+  // If switching away, stop polling and clear stale worked badges.
+  if (backend === 'mldx') {
+    startWorkedPolling();
+    if (lastRenderedSpots.length) lookupAndFetchWorked(lastRenderedSpots);
+  } else {
+    stopWorkedPolling();
+  }
 });
 
 document.getElementById('btn-refresh').addEventListener('click', () => {
@@ -1787,7 +1895,6 @@ document.addEventListener('click', e => {
 });
 
 // Kick off the startup check.  Everything else waits for this.
-// Note: the rig dropdown defaults to "none" (set in the HTML), so
 // Startup: verify proxy is running, then load spots.
 startupProxyCheck();
 updateScanPills();  // disable scan pills if rig starts as None

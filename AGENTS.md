@@ -232,6 +232,11 @@ All responses are JSON. Routes with an `ok` field indicate success/failure.
 GET /version                           → {"version": "1.4.0"}
 GET /backends                          → {"backends": ["mldx","flrig","rigctld"]}
 GET /ping/<backend>                    → {"ok": true/false, "version": "...", "error": "..."}
+GET /set_backend?backend=<name>        → {"ok": true/false} — switches active backend, starts/stops UDP listener
+GET /worked                            → {callsign: {count, last_date, worked_today, last_band, last_mode, ...}, ...}
+GET /lookup_calls?calls=W1AW,K8BSR    → {"queued": N} — enqueues callsigns for background AppleScript lookup
+GET /themes                            → {"themes": ["dracula", ...]}
+GET /themes/<name>.json                → theme JSON file
 GET /tune/mldx?freq=<kHz>&mode=<mode>&callsign=<call>&note=<text>
 GET /tune/flrig?freq=<kHz>&mode=<mode>
 GET /tune/rigctld?freq=<kHz>&mode=<mode>
@@ -266,6 +271,7 @@ MacLoggerDX further converts to MHz for AppleScript.
 | `hunterProfile` | Object\|null | Cached response from `api.pota.app/profile/<call>`. Null until callsign is set and profile fetched. Used by award badge, popover, and endorsement hints. |
 | `parkTypeCache` | Object | Maps park ref → parktypeDesc string from `api.pota.app/park/<ref>`. `undefined` = not fetched, `null` = in-flight, `''` = failed/unknown, string = resolved. Never cleared. |
 | `parkRenderTimer` | timeout id | Debounce timer for render() triggered by park type fetch completions. 200ms debounce coalesces rapid completions. |
+| `workedCache` | Object | Snapshot of proxy's worked_cache, keyed by callsign. Populated by fetchWorked() after each spot refresh when MLDX backend is active. Each entry: `{count, last_date, worked_today, last_band, last_mode, last_freq_mhz, last_park_ref}`. |
 
 ---
 

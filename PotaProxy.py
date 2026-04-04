@@ -105,8 +105,11 @@ import argparse
 import json
 import logging
 import pathlib
+import queue
 import socket
 import sys
+import threading
+import webbrowser
 import xmlrpc.client
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import urlparse, parse_qs
@@ -130,6 +133,34 @@ try:
     APP_VERSION = _version_file.read_text(encoding="utf-8").strip()
 except OSError:
     APP_VERSION = "unknown"
+
+
+# ════════════════════════════════════════════════════════════
+# WORKED CACHE  —  tracks QSO history for visible activators
+# ════════════════════════════════════════════════════════════
+#
+# Populated by two sources:
+#   1. AppleScript batch query (historical counts, no band/mode)
+#   2. UDP log listener on port 9932 (real-time, has band/mode)
+#
+# Protected by a threading.Lock — the UDP listener and the
+# background worker thread both write to it concurrently.
+#
+# Schema per callsign entry:
+#   count        (int)         lifetime QSO count
+#   last_date    (str|None)    ISO-8601 UTC timestamp of most recent QSO
+#   worked_today (bool)        any QSO with UTC date == today
+#   last_band    (str|None)    e.g. "20m" — None if unknown (AppleScript)
+#   last_mode    (str|None)    SSB-collapsed — None if unknown
+#   last_freq_mhz (str|None)   e.g. "14.074" — None if unknown
+#   last_park_ref (str|None)   e.g. "US-1234" — None if not provided
+
+worked_cache: dict = {}
+worked_cache_lock = threading.Lock()
+
+# Queue of callsigns waiting for AppleScript lookup.
+# The background worker drains this in batches of up to 50.
+_lookup_queue: queue.Queue = queue.Queue()
 
 
 # ════════════════════════════════════════════════════════════
@@ -172,6 +203,30 @@ class RigBackend:
             and converted to a user-friendly "is <backend> running?" message.
         """
         raise NotImplementedError
+
+    def get_worked(self, callsigns: list) -> dict:
+        """
+        Return worked history for a batch of callsigns.
+        Returns {callsign: {count, last_date, worked_today, last_band,
+                             last_mode, last_freq_mhz, last_park_ref}}.
+        Default: returns empty dict (no-op for backends without log access).
+        """
+        return {}
+
+    def start_log_listener(self, callback) -> None:
+        """
+        Start a background listener for real-time QSO log events.
+        Calls callback(entry_dict) whenever a new QSO is logged.
+        Default: no-op.
+        """
+        pass
+
+    def stop_log_listener(self) -> None:
+        """
+        Stop the log listener thread. BLOCKS until fully stopped.
+        Default: no-op.
+        """
+        pass
 
 
 # ════════════════════════════════════════════════════════════
@@ -597,6 +652,44 @@ class MacLoggerDXBackend(RigBackend):
         ])
         return result.strip() or "ok"
 
+    def check_udp_pref(self) -> dict:
+        """
+        Read the MacLoggerDX preferences plist to check whether UDP log
+        broadcast is enabled.
+
+        MLDX stores its prefs in:
+          ~/Library/Preferences/com.dogparksoftware.MacLoggerDX.plist
+        The relevant key is send_udp_broadcasts_<N> where N is the station
+        number (usually 1).  Value is 1 when enabled, 0 when disabled.
+
+        Returns a dict:
+          {
+            "found":   bool,  # plist file found
+            "enabled": bool,  # any send_udp_broadcasts_* key is non-zero
+          }
+        """
+        import plistlib
+
+        plist_path = pathlib.Path.home() / "Library" / "Preferences" / \
+                     "com.dogparksoftware.MacLoggerDX.plist"
+        if not plist_path.exists():
+            return {"found": False, "enabled": False}
+
+        try:
+            with open(plist_path, "rb") as f:
+                prefs = plistlib.load(f)
+        except Exception as e:
+            log.debug("check_udp_pref: plist read error: %s", e)
+            return {"found": True, "enabled": False, "error": str(e)}
+
+        # Check any send_udp_broadcasts_<N> key — true if any station has it on.
+        enabled = any(
+            bool(v)
+            for k, v in prefs.items()
+            if k.startswith("send_udp_broadcasts_")
+        )
+        return {"found": True, "enabled": enabled}
+
     def tune(self, freq_hz: int, mode: str, callsign: str = "",
              note: str = "") -> None:
         """
@@ -643,6 +736,184 @@ class MacLoggerDXBackend(RigBackend):
         script_lines.append('end tell')
 
         self._osascript(script_lines)
+
+    def get_worked(self, callsigns: list) -> dict:
+        """
+        Batch-query MacLoggerDX for QSO history for a list of callsigns.
+
+        Makes a single pass over all QSOs, collecting count and most recent
+        qso_start for each requested callsign. One osascript call total.
+
+        Returns {callsign: {count, last_date, worked_today, last_band=None,
+                             last_mode=None, last_freq_mhz=None, last_park_ref=None}}
+        """
+        if not callsigns:
+            return {}
+
+        from datetime import datetime, timezone
+        today_utc = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+
+        # Build a set literal for AppleScript membership test
+        calls_set = '{' + ', '.join(f'"{c}"' for c in callsigns) + '}'
+
+        # Single pass over all QSOs — collect count + last date per callsign.
+        # Returns pipe-delimited lines: CALL|count|last_date_string
+        script = f'''
+set targetCalls to {calls_set}
+set cntList to {{}}
+set dateList to {{}}
+repeat with c in targetCalls
+  set end of cntList to 0
+  set end of dateList to ""
+end repeat
+tell application "MacLoggerDX"
+  set total to count every qso
+  repeat with i from 1 to total
+    set c to call of qso i
+    set pos to 0
+    repeat with j from 1 to (count targetCalls)
+      if item j of targetCalls is c then
+        set pos to j
+        exit repeat
+      end if
+    end repeat
+    if pos > 0 then
+      set item pos of cntList to (item pos of cntList) + 1
+      set d to qso_start of qso i as string
+      if d > item pos of dateList then set item pos of dateList to d
+    end if
+  end repeat
+end tell
+set result to ""
+repeat with j from 1 to (count targetCalls)
+  set result to result & item j of targetCalls & "|" & item j of cntList & "|" & item j of dateList & linefeed
+end repeat
+return result
+'''
+        try:
+            raw = self._osascript([script])
+        except RuntimeError as e:
+            log.debug("get_worked AppleScript error: %s", e)
+            return {}
+
+        results = {}
+        for line in raw.strip().splitlines():
+            parts = line.split('|')
+            if len(parts) < 3:
+                continue
+            call, count_str, last_date_str = parts[0], parts[1], parts[2]
+            try:
+                count = int(count_str)
+            except ValueError:
+                count = 0
+            last_date = last_date_str.strip() or None
+            # MLDX returns dates like "Saturday, April 4, 2026 at 14:28:49"
+            # Check if today's date appears in the string
+            from datetime import datetime, timezone
+            today_utc = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+            # Also check month/day/year format that MLDX uses
+            today_mldx = datetime.now(timezone.utc).strftime('%B %-d, %Y')
+            worked_today = bool(last_date and (today_utc in last_date or today_mldx in last_date))
+            results[call] = {
+                'count':         count,
+                'last_date':     last_date,
+                'worked_today':  worked_today,
+                'last_band':     None,
+                'last_mode':     None,
+                'last_freq_mhz': None,
+                'last_park_ref': None,
+            }
+        return results
+
+    def start_log_listener(self, callback) -> None:
+        """
+        Bind UDP socket on port 9932 and listen for MacLoggerDX Log Report
+        broadcasts. Calls callback(entry_dict) for each QSO logged.
+
+        Log Report packet format (space-delimited key:value pairs):
+          Log Report: Call:N2BJ, RxMHz:21.08580, TxMHz:21.08580, Band:15M,
+          Mode:FSK, Power:5, logged_time:2014-12-30 17:33:57 +0000, ...
+
+        Runs in a daemon thread. Safe to call multiple times — stops any
+        existing listener first.
+        """
+        self.stop_log_listener()  # stop any existing listener
+
+        self._listener_stop = threading.Event()
+
+        def _listen():
+            try:
+                sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                sock.bind(('', 9932))
+                sock.settimeout(1.0)
+            except OSError as e:
+                log.warning("UDP listener: cannot bind port 9932: %s", e)
+                return
+
+            log.info("UDP log listener started on port 9932")
+            while not self._listener_stop.is_set():
+                try:
+                    data, _ = sock.recvfrom(4096)
+                except socket.timeout:
+                    continue
+                except OSError:
+                    break
+                try:
+                    msg = data.decode('utf-8', errors='replace')
+                    if 'Log Report:' not in msg:
+                        continue
+                    log.debug("UDP packet received: %s", msg.strip())
+                    # Strip the "Log Report: " prefix so "Call:N2BJ" becomes
+                    # the first token rather than being embedded in
+                    # "Log Report: Call:N2BJ" where it would parse as
+                    # key="log report", value="Call:N2BJ" — losing the call.
+                    payload = msg[msg.index('Log Report:') + len('Log Report:'):].strip()
+                    entry = {}
+                    for token in payload.split(','):
+                        token = token.strip()
+                        if ':' in token:
+                            k, _, v = token.partition(':')
+                            entry[k.strip().lower()] = v.strip()
+                    call = entry.get('call', '').upper()
+                    if not call:
+                        log.debug("UDP packet had no Call field: %s", entry)
+                        continue
+                    band = entry.get('band', '').lower()   # e.g. "20m"
+                    mode = entry.get('mode', '').upper()   # e.g. "FT8"
+                    # Collapse SSB variants
+                    if mode in ('USB', 'LSB', 'AM'):
+                        mode = 'SSB'
+                    freq_tx = entry.get('txmhz', '') or entry.get('rxmhz', '')
+                    logged_time = entry.get('logged_time', '')
+                    log.info("UDP QSO: call=%s band=%s mode=%s", call, band or '?', mode or '?')
+                    callback({
+                        'call':         call,
+                        'band':         band or None,
+                        'mode':         mode or None,
+                        'last_freq_mhz': freq_tx or None,
+                        'last_date':    logged_time or None,
+                        'last_park_ref': None,  # not in UDP packet
+                    })
+                except Exception as e:
+                    log.debug("UDP parse error: %s", e)
+
+            sock.close()
+            log.info("UDP log listener stopped")
+
+        self._listener_thread = threading.Thread(target=_listen, daemon=True)
+        self._listener_thread.start()
+
+    def stop_log_listener(self) -> None:
+        """Stop the UDP listener thread and block until it exits."""
+        stop_event = getattr(self, '_listener_stop', None)
+        if stop_event:
+            stop_event.set()
+        thread = getattr(self, '_listener_thread', None)
+        if thread and thread.is_alive():
+            thread.join(timeout=3)
+        self._listener_stop = None
+        self._listener_thread = None
 
     def _osascript(self, lines: list) -> str:
         """
@@ -697,21 +968,57 @@ def _build_backends(args):
     """
     Instantiate all registered backends using the provided CLI args.
     Returns a dict mapping name -> RigBackend instance.
-
-    Each backend uses args.rig_host for the host address (defaults to
-    127.0.0.1) but its own well-known default port so that flrig and
-    rigctld can both be registered simultaneously without conflict:
-      flrig   : port 12345  (overridden by --rig-port)
-      rigctld : port 4532   (fixed; rigctld has its own --rigctld-port
-                             if you need to change it — see argparse below)
     """
     return {
         "mldx":    MacLoggerDXBackend(),
         "flrig":   FlrigBackend(host=args.rig_host, port=args.rig_port),
         "rigctld": RigctldBackend(host=args.rig_host, port=args.rigctld_port),
-        # Add future backends here, e.g.:
-        # "omnirig": OmniRigBackend(),
     }
+
+
+def _worked_cache_worker(get_active_backend):
+    """
+    Background thread that drains _lookup_queue and populates worked_cache.
+
+    Pulls callsigns from the queue in batches of up to 50, calls
+    active_backend.get_worked(), and writes results into worked_cache
+    under the lock.  Runs forever as a daemon thread.
+    """
+    import time
+    while True:
+        batch = []
+        try:
+            # Block until at least one callsign is available
+            batch.append(_lookup_queue.get(timeout=5))
+        except queue.Empty:
+            continue
+        # Drain up to 49 more without blocking
+        while len(batch) < 50:
+            try:
+                batch.append(_lookup_queue.get_nowait())
+            except queue.Empty:
+                break
+
+        backend = get_active_backend()
+        try:
+            results = backend.get_worked(batch)
+        except Exception as e:
+            log.debug("get_worked error: %s", e)
+            results = {}
+
+        with worked_cache_lock:
+            for call, data in results.items():
+                # Only update if not already in cache with richer data
+                # (UDP listener may have already populated band/mode)
+                existing = worked_cache.get(call)
+                if existing and existing.get('last_band'):
+                    # Keep the richer UDP data, just update count/date
+                    existing['count'] = data['count']
+                    if data['last_date']:
+                        existing['last_date'] = data['last_date']
+                    existing['worked_today'] = existing['worked_today'] or data['worked_today']
+                else:
+                    worked_cache[call] = data
 
 
 # ════════════════════════════════════════════════════════════
@@ -831,6 +1138,37 @@ class ProxyHandler(BaseHTTPRequestHandler):
             self._json_response(200, {"version": APP_VERSION})
             return
 
+        # ── Route: /worked ───────────────────────────────────
+        # Returns a snapshot of the full worked_cache as JSON.
+        # The browser polls this after each spot refresh.
+        if path == "/worked":
+            with worked_cache_lock:
+                snapshot = dict(worked_cache)
+            self._json_response(200, snapshot)
+            return
+
+        # ── Route: /lookup_calls ─────────────────────────────
+        # Enqueues callsigns for background AppleScript lookup.
+        # Only queues if the active backend supports get_worked (i.e. MLDX).
+        if path == "/lookup_calls":
+            calls_param = (qs.get("calls") or [""])[0]
+            calls = [c.strip().upper() for c in calls_param.split(",") if c.strip()]
+            # Check if active backend actually implements get_worked
+            active = self.get_active_backend()
+            if type(active).get_worked is RigBackend.get_worked:
+                # Base class no-op — don't bother queuing
+                self._json_response(200, {"queued": 0})
+                return
+            queued = 0
+            with worked_cache_lock:
+                for call in calls:
+                    if call not in worked_cache:
+                        worked_cache[call] = None  # mark as in-flight
+                        _lookup_queue.put(call)
+                        queued += 1
+            self._json_response(200, {"queued": queued})
+            return
+
         # ── Route: /themes ───────────────────────────────────
         # Returns a list of theme names available in the themes/ directory.
         # The page fetches this at startup and loads each theme JSON file.
@@ -859,6 +1197,22 @@ class ProxyHandler(BaseHTTPRequestHandler):
             self.wfile.write(content)
             return
 
+        # ── Route: /set_backend ──────────────────────────────
+        # Switches the active backend, stopping/starting the log listener.
+        # Called by the frontend when the user changes the Rig dropdown.
+        if path == "/set_backend":
+            name = (qs.get("backend") or [""])[0].strip()
+            if self.set_active_backend(name):
+                resp = {"ok": True, "backend": name}
+                if name == "mldx":
+                    backend = self.backends.get("mldx")
+                    if hasattr(backend, "check_udp_pref"):
+                        resp["udp_pref"] = backend.check_udp_pref()
+                self._json_response(200, resp)
+            else:
+                self._json_response(400, {"ok": False, "error": f"Unknown backend '{name}'"})
+            return
+
         # ── Route: /ping/<backend> ───────────────────────────
         if path.startswith("/ping/"):
             backend_name = path[len("/ping/"):]
@@ -873,11 +1227,11 @@ class ProxyHandler(BaseHTTPRequestHandler):
             try:
                 # Only FlrigBackend has ping(); others get a simple ok:true
                 version = backend.ping() if hasattr(backend, "ping") else "n/a"
-                self._json_response(200, {
-                    "ok":      True,
-                    "backend": backend_name,
-                    "version": version,
-                })
+                resp = {"ok": True, "backend": backend_name, "version": version}
+                # For MLDX, include UDP broadcast pref status so the UI can warn
+                if backend_name == "mldx" and hasattr(backend, "check_udp_pref"):
+                    resp["udp_pref"] = backend.check_udp_pref()
+                self._json_response(200, resp)
             except (ConnectionRefusedError, OSError, RuntimeError) as e:
                 self._json_response(503, {
                     "ok":    False,
@@ -1047,8 +1401,62 @@ def main():
     # Build backend instances
     backends = _build_backends(args)
 
-    # Inject backends into the handler class (shared across all requests)
+    # Active backend — starts as 'none' regardless of --backend arg.
+    # The user must explicitly select a backend in the UI to activate it.
+    # This prevents MLDX AppleScript calls before the user opts in.
+    _active_backend_lock = threading.Lock()
+    _active_backend = [backends['none']] if 'none' in backends else [list(backends.values())[-1]]
+
+    def get_active_backend():
+        with _active_backend_lock:
+            return _active_backend[0]
+
+    def set_active_backend(name):
+        backend = backends.get(name)
+        if not backend:
+            return False
+        with _active_backend_lock:
+            old = _active_backend[0]
+            old.stop_log_listener()
+            _active_backend[0] = backend
+            backend.start_log_listener(_on_qso_logged)
+        return True
+
+    def _on_qso_logged(entry):
+        """Callback from UDP listener — update worked_cache with real-time QSO data."""
+        call = entry.get('call', '').upper()
+        if not call:
+            return
+        from datetime import datetime, timezone
+        today_utc = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+        with worked_cache_lock:
+            existing = worked_cache.get(call) or {'count': 0, 'last_date': None,
+                                                   'worked_today': False, 'last_band': None,
+                                                   'last_mode': None, 'last_freq_mhz': None,
+                                                   'last_park_ref': None}
+            existing['count'] += 1
+            existing['last_date'] = entry.get('last_date') or existing['last_date']
+            existing['worked_today'] = True
+            existing['last_band'] = entry.get('band') or existing['last_band']
+            existing['last_mode'] = entry.get('mode') or existing['last_mode']
+            existing['last_freq_mhz'] = entry.get('last_freq_mhz') or existing['last_freq_mhz']
+            worked_cache[call] = existing
+        log.info("QSO logged: %s  band=%s  mode=%s", call,
+                 entry.get('band'), entry.get('mode'))
+
+    # Inject backends and active_backend accessor into the handler class
     ProxyHandler.backends = backends
+    ProxyHandler.get_active_backend = staticmethod(get_active_backend)
+    ProxyHandler.set_active_backend = staticmethod(set_active_backend)
+
+    # Start background worker thread for AppleScript batch lookups
+    worker = threading.Thread(
+        target=_worked_cache_worker,
+        args=(get_active_backend,),
+        daemon=True,
+        name="worked-cache-worker",
+    )
+    worker.start()
 
     # Bind to localhost only — never expose this to the network.
     server = HTTPServer(("127.0.0.1", args.port), ProxyHandler)
@@ -1086,10 +1494,7 @@ def main():
             html_path,
         )
     else:
-        import webbrowser, threading
         # Open in a background thread so it doesn't block serve_forever().
-        # A short delay ensures the server's accept loop is running before
-        # the browser sends its first request.
         def _open():
             import time
             time.sleep(0.5)

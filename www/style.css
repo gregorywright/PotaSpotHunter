@@ -120,6 +120,7 @@
   #status-line.loading { color: var(--amber); }
   #status-line.error   { color: var(--red); }
   #status-line.ok      { color: var(--green-dim); }
+  #status-line.warning { color: var(--amber); }
 
   /* ── Controls bar ─────────────────────────────────────── */
   #controls {

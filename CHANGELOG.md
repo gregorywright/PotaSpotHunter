@@ -1,4 +1,17 @@
 ## [Unreleased]
+### Added
+- **Worked Callsign Indicator** — when MacLoggerDX backend is selected,
+  each spot row shows a `×N` lifetime QSO count badge after the callsign,
+  and a colored dot if worked today:
+  - Amber ● — worked today, band/mode unknown (AppleScript source)
+  - Red ● — worked today on matching band/mode (likely no points)
+  Hover the callsign cell for full details. Data comes from two sources:
+  AppleScript batch query (historical counts) and UDP log listener on
+  port 9932 (real-time, adds band/mode). No lookups happen until the
+  user explicitly selects the MacLoggerDX backend.
+### Changed
+- Rig dropdown change now calls `GET /set_backend` to sync the proxy's
+  active backend, starting/stopping the UDP log listener as needed.
 
 ## [1.9.3] - 2026-04-04
 ### Changed
