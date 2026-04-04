@@ -1,4 +1,6 @@
 ## [Unreleased]
+
+## [1.9.2] - 2026-04-04
 ### Fixed
 - Startup no longer pings MacLoggerDX — fixes spurious "mldx unreachable"
   error on Windows and any system where MacLoggerDX is not installed.
