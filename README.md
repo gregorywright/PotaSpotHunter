@@ -57,13 +57,7 @@ Keep all the files in the same folder.
 
 ### 2. Start the proxy
 
-Open a terminal in the unzipped folder and run:
-
-```bash
-python3 PotaProxy.py
-```
-
-The proxy will automatically open `PotaSpotHunter.html` in your default browser. The **Rig Control** dropdown defaults to **None**, so you can browse live spots right away without any radio attached.
+Open a terminal in the unzipped folder and run `python3 PotaProxy.py`. On Windows, after installing Python, you can also just double-click `PotaProxy.py` in File Explorer. The proxy will automatically open your browser. The **Rig Control** dropdown defaults to **None**, so you can browse live spots right away without any radio attached.
 
 ### 3. (Optional) Click-to-tune
 

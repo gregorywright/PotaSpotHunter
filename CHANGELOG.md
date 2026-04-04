@@ -1,5 +1,10 @@
 ## [Unreleased]
 
+## [1.9.3] - 2026-04-04
+### Changed
+- Quick Start instructions now mention that Windows users can double-click
+  `PotaProxy.py` in File Explorer after installing Python.
+
 ## [1.9.2] - 2026-04-04
 ### Fixed
 - Startup no longer pings MacLoggerDX — fixes spurious "mldx unreachable"
