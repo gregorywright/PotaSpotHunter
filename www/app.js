@@ -72,11 +72,9 @@ let allSpots     = [];
 
 // ── Worked cache (polled from proxy) ────────────────────
 // Snapshot of the proxy's worked_cache, keyed by callsign.
-// Populated by fetchWorked() after each spot refresh and by a
-// periodic poll when MLDX is active (so UDP-logged QSOs appear
-// within seconds, not at the next 2-minute spot refresh).
+// Populated by fetchWorked() after each spot refresh.
+// Real-time updates arrive via SSE (openEventSource).
 let workedCache = {};
-let workedPollTimer = null;
 
 async function fetchWorked() {
   try {
@@ -90,16 +88,32 @@ async function fetchWorked() {
   } catch { /* proxy not running or no data yet */ }
 }
 
-// Start polling /worked every 20s so UDP-logged QSOs appear quickly.
-// Safe to call multiple times — clears any existing timer first.
-function startWorkedPolling() {
-  if (workedPollTimer) clearInterval(workedPollTimer);
-  workedPollTimer = setInterval(fetchWorked, 20000);
-}
+// Open the SSE push channel. Called once after the proxy is confirmed running.
+// EventSource reconnects automatically if the proxy restarts.
+let _eventSource = null;
+function openEventSource() {
+  if (_eventSource) return;
+  const es = new EventSource(`${PROXY_BASE}/events`);
+  _eventSource = es;
 
-function stopWorkedPolling() {
-  if (workedPollTimer) { clearInterval(workedPollTimer); workedPollTimer = null; }
-  workedCache = {};
+  es.addEventListener('worked_update', e => {
+    const { call, entry } = JSON.parse(e.data);
+    workedCache[call] = entry;
+    render();
+  });
+
+  es.addEventListener('conflict', () => {
+    es.close();
+    _eventSource = null;
+    showConflictError();
+  });
+
+  // Release the SSE slot immediately when this tab closes or navigates away.
+  // sendBeacon is reliable for this use case; the 5s heartbeat catches any
+  // cases where it doesn't fire (browser crash, etc.).
+  window.addEventListener('pagehide', () => {
+    navigator.sendBeacon(`${PROXY_BASE}/events/close`);
+  }, { once: true });
 }
 
 // Enqueue all visible callsigns for AppleScript lookup, then fetch results.
@@ -1330,13 +1344,13 @@ document.getElementById('rig-select').addEventListener('change', e => {
       }
     })
     .catch(() => {});
-  // If switching to MLDX, start polling /worked and seed the history.
-  // If switching away, stop polling and clear stale worked badges.
+  // If switching to MLDX, seed the AppleScript history.
+  // If switching away, clear stale worked badges.
   if (backend === 'mldx') {
-    startWorkedPolling();
     if (lastRenderedSpots.length) lookupAndFetchWorked(lastRenderedSpots);
   } else {
-    stopWorkedPolling();
+    workedCache = {};
+    render();
   }
 });
 
@@ -1605,6 +1619,7 @@ async function startupProxyCheck() {
     }
 
     setStatus('ok', 'Connected to proxy');
+    openEventSource();
     startAutoRefresh();
     fetchSpots().then(() => openMap());
 
@@ -1656,6 +1671,31 @@ function showProxyDownError() {
     document.getElementById('app').style.filter = '';
     await startupProxyCheck();
   });
+}
+
+// Show a full-screen blocking error when a second tab tries to connect.
+// Kills all periodic activity so the dead tab consumes no resources.
+function showConflictError() {
+  // Stop all repeating timers — this tab is now inert.
+  if (autoRefreshTimer) { clearInterval(autoRefreshTimer); autoRefreshTimer = null; }
+  if (autoScanTimer)    { clearInterval(autoScanTimer);    autoScanTimer    = null; }
+
+  setStatus('error', 'Already open in another tab');
+  document.getElementById('app').style.filter = 'blur(3px) opacity(0.3)';
+
+  const overlay = document.createElement('div');
+  overlay.id = 'proxy-down-overlay';
+  overlay.innerHTML = `
+    <div id="proxy-down-box">
+      <div id="proxy-down-icon">&#9888;</div>
+      <div id="proxy-down-title">POTA Spot Hunter is already open</div>
+      <div id="proxy-down-body">
+        <p>POTA Spot Hunter is already running in another tab or window.</p>
+        <p>Please switch to that tab. This tab has been disabled to prevent
+           duplicate connections and extra load on the proxy and pota.app.</p>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
 }
 
 // ── Time-based award hint helpers ────────────────────────

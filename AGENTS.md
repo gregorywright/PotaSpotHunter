@@ -393,7 +393,7 @@ if the next changes are patch-level). Unreleased changes are tracked in
 - The app is split into `www/index.html`, `www/style.css`, and `www/app.js`.
   Edit files in `www/` and reload the browser — no build step needed.
   `PotaSpotHunter.html` is kept as a legacy reference/fallback.
-- `PotaProxy.py` requires Python 3.6+ and no third-party packages.
+- `PotaProxy.py` requires Python 3.7+ and no third-party packages.
 - The HTML file is ~2500 lines. Always read the relevant section before
   editing — don't rely on memory of exact whitespace.
 - Always verify edits with a grep/check pass after making changes.

@@ -3,6 +3,136 @@
 
 ---
 
+## [PLANNED] Server-Sent Events (SSE) push channel
+
+Replace the 20-second `/worked` polling loop with a persistent push channel
+so real-time QSO updates (and future events) appear in the browser within
+~1 second of occurring.
+
+### Design decisions (locked)
+
+- **Single tab enforcement** — the broker holds one client slot. A second tab
+  connecting to `/events` immediately receives a `conflict` event and the
+  server closes that connection. The JS shows "PSH is already open in another
+  tab — please use that one" and calls `es.close()`.
+- **Backend-agnostic broker** — `SSEBroker.publish(event_type, data)` is the
+  only API. MLDX calls it from `_on_qso_logged`; Log4OM, flrig, rigctld can
+  call it too. The broker has no knowledge of backends.
+- **EventSource opened on page load unconditionally** — not tied to rig
+  selection. Future event types (spots push, backend status) work without
+  any JS changes.
+- **ThreadingHTTPServer** — switch from plain `HTTPServer` to
+  `http.server.ThreadingHTTPServer` (Python 3.7+). Required so the blocking
+  SSE handler thread does not starve tune/fetch requests. Bump stated minimum
+  Python version from 3.6 to 3.7 in docs.
+- **Heartbeat every 30s** — SSE comment (`: heartbeat\n\n`) keeps the
+  connection alive through proxies/firewalls. `EventSource` ignores comments.
+- **Polling for AppleScript history stays** — the one-shot
+  `setTimeout(fetchWorked, 2000)` after `lookupAndFetchWorked` is kept.
+  AppleScript is slow; SSE fires when the result lands in `worked_cache`.
+  The 20s interval poll (`startWorkedPolling`) is removed.
+
+### Event types (initial + planned)
+
+| event name        | data payload                               | trigger                        |
+|-------------------|--------------------------------------------|--------------------------------|
+| `worked_update`   | `{call, entry: {count, worked_today, …}}`  | UDP QSO logged (immediate)     |
+| `conflict`        | `{}`                                       | Second tab connects to /events |
+| `spots` *(future)*| `[{spotId, …}, …]`                         | Proxy-side spot refresh        |
+| `backend_status` *(future)* | `{backend, ok, error}`       | Backend connect/disconnect     |
+
+### `SSEBroker` class (module-level singleton in PotaProxy.py)
+
+```python
+class SSEBroker:
+    def __init__(self):
+        self._client: queue.Queue | None = None  # one slot only
+        self._lock = threading.Lock()
+
+    def connect(self) -> tuple[queue.Queue, bool]:
+        """Register a client. Returns (queue, is_primary).
+        Non-primary callers should send conflict event then disconnect."""
+        q = queue.Queue()
+        with self._lock:
+            if self._client is None:
+                self._client = q
+                return q, True
+            return q, False   # conflict
+
+    def disconnect(self, q: queue.Queue) -> None:
+        with self._lock:
+            if self._client is q:
+                self._client = None
+
+    def publish(self, event_type: str, data: dict) -> None:
+        with self._lock:
+            q = self._client
+        if q is not None:
+            q.put((event_type, data))
+```
+
+### `GET /events` handler (in ProxyHandler)
+
+```
+1. Send HTTP 200, Content-Type: text/event-stream, Cache-Control: no-cache
+2. Call broker.connect() → (q, is_primary)
+3. If not is_primary:
+       write "event: conflict\ndata: {}\n\n"
+       flush, return
+4. Loop:
+       try: event_type, data = q.get(timeout=30)
+            write f"event: {event_type}\ndata: {json.dumps(data)}\n\n"
+            flush
+       except queue.Empty:
+            write ": heartbeat\n\n"
+            flush
+       except (BrokenPipeError, ConnectionResetError, OSError):
+            break
+5. broker.disconnect(q)
+```
+
+### Changes to `_on_qso_logged`
+
+Add one line after updating `worked_cache`:
+```python
+broker.publish('worked_update', {'call': call, 'entry': dict(worked_cache[call])})
+```
+
+### Browser changes (`www/app.js`)
+
+- After `startupProxyCheck()` succeeds, open `new EventSource(PROXY_BASE + '/events')`
+- `es.addEventListener('worked_update', e => { ... update workedCache, render() })`
+- `es.addEventListener('conflict', () => { es.close(); show conflict message })`
+- Remove `startWorkedPolling()`, `stopWorkedPolling()`, `workedPollTimer`
+- Keep `lookupAndFetchWorked()` and `fetchWorked()` for AppleScript history load
+
+### Implementation tasks
+
+**Task 1 — Switch to ThreadingHTTPServer** ✓ DONE
+- Change import and server instantiation
+- Update Python version requirement to 3.7 in README/AGENTS.md
+- **Verify (automated):** Hit `/spots`, `/tune`, `/worked` via curl to confirm no regressions
+
+**Task 2 — Implement SSEBroker** ✓ DONE
+- Add `SSEBroker` class and `broker = SSEBroker()` module-level instance
+- Add `GET /events` route to `ProxyHandler`
+- Add `broker.publish('worked_update', …)` call in `_on_qso_logged`
+- **Verify (automated):** Connect to `/events` with curl; call `broker.publish()` via a test shim and confirm the SSE frame arrives; verify heartbeat fires after 30s timeout
+
+**Task 3 — Wire up browser EventSource** ✓ DONE
+- Open `EventSource` in `startupProxyCheck` after proxy confirmed running
+- Handle `worked_update` and `conflict` events
+- Remove polling timer; keep `lookupAndFetchWorked` / `fetchWorked`
+- **Verify (automated):** Static inspection of app.js confirms polling timer removed and EventSource wired; manual check via DevTools → Network to confirm connection
+
+**Task 4 — Integration test (manual by you)** ✓ DONE
+- Open two tabs — second tab should show conflict message
+- Log a QSO in MLDX — badge should appear within ~1s
+- Kill and restart proxy — browser should reconnect automatically
+- Verify tune/fetch routes work normally while SSE connection is open
+
+---
+
 ## [PLANNED] Worked Callsign Indicator
 
 Show hunters how many times they've worked each visible activator, and

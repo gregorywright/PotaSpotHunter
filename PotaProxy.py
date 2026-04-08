@@ -111,7 +111,7 @@ import sys
 import threading
 import webbrowser
 import xmlrpc.client
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 
 
@@ -1022,6 +1022,49 @@ def _worked_cache_worker(get_active_backend):
 
 
 # ════════════════════════════════════════════════════════════
+# SSE BROKER
+# ════════════════════════════════════════════════════════════
+
+class SSEBroker:
+    """Push-channel broker. Holds one client slot; a second connection
+    receives a 'conflict' event and is closed immediately."""
+
+    def __init__(self):
+        self._client: "queue.Queue | None" = None
+        self._lock = threading.Lock()
+
+    def connect(self) -> "tuple[queue.Queue, bool]":
+        """Register a client. Returns (queue, is_primary).
+        Non-primary callers should send the conflict event then disconnect."""
+        q: queue.Queue = queue.Queue()
+        with self._lock:
+            if self._client is None:
+                self._client = q
+                return q, True
+        return q, False  # conflict
+
+    def disconnect(self, q: "queue.Queue") -> None:
+        with self._lock:
+            if self._client is q:
+                self._client = None
+
+    def publish(self, event_type: str, data: dict) -> None:
+        with self._lock:
+            q = self._client
+        if q is not None:
+            q.put((event_type, data))
+
+    def close_current(self) -> None:
+        """Signal the current client to disconnect immediately."""
+        with self._lock:
+            q = self._client
+        if q is not None:
+            q.put(None)  # sentinel — causes the handler loop to exit
+
+
+broker = SSEBroker()
+
+
 # HTTP PROXY HANDLER
 # ════════════════════════════════════════════════════════════
 
@@ -1095,6 +1138,15 @@ class ProxyHandler(BaseHTTPRequestHandler):
         self._cors_headers()
         self.end_headers()
 
+    def do_POST(self):
+        """Handle POST requests. Currently only /events/close (sendBeacon)."""
+        path = urlparse(self.path).path.rstrip("/")
+        if path == "/events/close":
+            broker.close_current()
+            self._json_response(200, {"ok": True})
+        else:
+            self._send_error(404, "Not found")
+
     def do_GET(self):
         parsed   = urlparse(self.path)
         path     = parsed.path.rstrip("/")
@@ -1145,6 +1197,45 @@ class ProxyHandler(BaseHTTPRequestHandler):
             with worked_cache_lock:
                 snapshot = dict(worked_cache)
             self._json_response(200, snapshot)
+            return
+
+        # ── Route: /events ───────────────────────────────────
+        # SSE push channel. Holds the connection open and streams events.
+        # Only one client is allowed; a second receives a conflict event.
+        if path == "/events":
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.send_header("Cache-Control", "no-cache")
+            self.send_header("X-Accel-Buffering", "no")
+            self.end_headers()
+            q, is_primary = broker.connect()
+            if not is_primary:
+                try:
+                    self.wfile.write(b"event: conflict\ndata: {}\n\n")
+                    self.wfile.flush()
+                except OSError:
+                    pass
+                return
+            try:
+                while True:
+                    try:
+                        msg = q.get(timeout=5)
+                        if msg is None:  # sentinel from close_current()
+                            break
+                        event_type, data = msg
+                        payload = (
+                            f"event: {event_type}\n"
+                            f"data: {json.dumps(data)}\n\n"
+                        ).encode()
+                        self.wfile.write(payload)
+                        self.wfile.flush()
+                    except queue.Empty:
+                        self.wfile.write(b": heartbeat\n\n")
+                        self.wfile.flush()
+            except OSError:
+                pass
+            finally:
+                broker.disconnect(q)
             return
 
         # ── Route: /lookup_calls ─────────────────────────────
@@ -1443,6 +1534,7 @@ def main():
             worked_cache[call] = existing
         log.info("QSO logged: %s  band=%s  mode=%s", call,
                  entry.get('band'), entry.get('mode'))
+        broker.publish('worked_update', {'call': call, 'entry': dict(existing)})
 
     # Inject backends and active_backend accessor into the handler class
     ProxyHandler.backends = backends
@@ -1459,7 +1551,7 @@ def main():
     worker.start()
 
     # Bind to localhost only — never expose this to the network.
-    server = HTTPServer(("127.0.0.1", args.port), ProxyHandler)
+    server = ThreadingHTTPServer(("127.0.0.1", args.port), ProxyHandler)
 
     # Resolve the www/ directory path relative to this script's location.
     script_dir = pathlib.Path(__file__).parent.resolve()

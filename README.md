@@ -94,7 +94,7 @@ PotaProxy.py  (localhost:8080)
 
 | Requirement | Notes |
 |---|---|
-| Python 3.6+ | Standard on macOS 12+. Install via [Homebrew](https://brew.sh): `brew install python` |
+| Python 3.7+ | Standard on macOS 12+. Install via [Homebrew](https://brew.sh): `brew install python` |
 | A modern browser | Safari, Chrome, Firefox, or Edge |
 | **One** of the following *(optional — only needed for click-to-tune)*: | |
 | [MacLoggerDX](https://dogparksoftware.com/MacLoggerDX.html) | macOS only. |
