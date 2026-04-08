@@ -72,21 +72,8 @@ let allSpots     = [];
 
 // ── Worked cache (polled from proxy) ────────────────────
 // Snapshot of the proxy's worked_cache, keyed by callsign.
-// Populated by fetchWorked() after each spot refresh.
-// Real-time updates arrive via SSE (openEventSource).
+// Populated entirely via SSE worked_update events (openEventSource).
 let workedCache = {};
-
-async function fetchWorked() {
-  try {
-    const r = await fetch(`${PROXY_BASE}/worked`);
-    const data = await r.json();
-    // Only re-render if the data actually changed.
-    if (JSON.stringify(data) !== JSON.stringify(workedCache)) {
-      workedCache = data;
-      render();
-    }
-  } catch { /* proxy not running or no data yet */ }
-}
 
 // Open the SSE push channel. Called once after the proxy is confirmed running.
 // EventSource reconnects automatically if the proxy restarts.
@@ -116,7 +103,8 @@ function openEventSource() {
   }, { once: true });
 }
 
-// Enqueue all visible callsigns for AppleScript lookup, then fetch results.
+// Enqueue all visible callsigns for AppleScript lookup.
+// Results arrive via SSE worked_update events as the worker processes them.
 // The proxy checks whether the active backend supports get_worked — no need
 // to check here. If backend doesn't support it, proxy returns queued:0.
 async function lookupAndFetchWorked(spots) {
@@ -124,7 +112,6 @@ async function lookupAndFetchWorked(spots) {
   const calls = [...new Set(spots.map(s => s.activator).filter(Boolean))];
   try {
     await fetch(`${PROXY_BASE}/lookup_calls?calls=${encodeURIComponent(calls.join(','))}`);
-    setTimeout(fetchWorked, 2000);
   } catch { /* ignore */ }
 }
 // ── New-spot tracking ───────────────────────────────────

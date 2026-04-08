@@ -1006,6 +1006,7 @@ def _worked_cache_worker(get_active_backend):
             log.debug("get_worked error: %s", e)
             results = {}
 
+        updates = {}
         with worked_cache_lock:
             for call, data in results.items():
                 # Only update if not already in cache with richer data
@@ -1017,8 +1018,13 @@ def _worked_cache_worker(get_active_backend):
                     if data['last_date']:
                         existing['last_date'] = data['last_date']
                     existing['worked_today'] = existing['worked_today'] or data['worked_today']
+                    updates[call] = dict(existing)
                 else:
                     worked_cache[call] = data
+                    updates[call] = dict(data)
+
+        for call, entry in updates.items():
+            broker.publish('worked_update', {'call': call, 'entry': entry})
 
 
 # ════════════════════════════════════════════════════════════
