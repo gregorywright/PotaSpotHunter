@@ -1,6 +1,6 @@
-## [Unreleased]
+## [1.10.0] - 2026-04-08
 ### Added
-- **Worked Callsign Indicator** — when MacLoggerDX backend is selected,
+- **Worked callsign indicator** — when MacLoggerDX backend is selected,
   each spot row shows a `×N` lifetime QSO count badge after the callsign,
   and a colored dot if worked today:
   - Amber ● — worked today, band/mode unknown (AppleScript source)
@@ -9,9 +9,20 @@
   AppleScript batch query (historical counts) and UDP log listener on
   port 9932 (real-time, adds band/mode). No lookups happen until the
   user explicitly selects the MacLoggerDX backend.
+- **SSE push channel** — a persistent `GET /events` connection replaces
+  all polling for worked-callsign data. Real-time QSO badges appear
+  within ~1s of logging; AppleScript history results stream in as they
+  arrive rather than waiting for a fixed delay. Only one browser tab
+  may hold the connection — a second tab receives a blocking conflict
+  overlay and all its timers are stopped (no residual load on the proxy
+  or pota.app). The primary tab releases its slot immediately on close
+  via `sendBeacon`; a 5s heartbeat catches any cases `sendBeacon`
+  misses (browser crash, etc.).
 ### Changed
 - Rig dropdown change now calls `GET /set_backend` to sync the proxy's
   active backend, starting/stopping the UDP log listener as needed.
+- Minimum Python version raised from 3.6 to 3.7 (`ThreadingHTTPServer`
+  is required for the SSE handler thread to coexist with other routes).
 
 ## [1.9.3] - 2026-04-04
 ### Changed
