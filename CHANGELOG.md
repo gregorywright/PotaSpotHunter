@@ -1,3 +1,43 @@
+## [1.11.0] - 2026-04-09
+### Fixed
+- `NoneBackend` added so selecting "None" rig backend correctly syncs with
+  the proxy — previously the proxy silently fell back to rigctld.
+- Undefined `_send_error()` replaced with `_json_response()` — previously
+  caused a crash (AttributeError) on unknown POST paths or missing `www/` files.
+- `PROXY_BASE` now derived from `window.location.origin` instead of hardcoded
+  `http://localhost:8080` — changing `--port` no longer silently breaks all
+  proxy API calls from the frontend.
+- Worked-callsign tooltip no longer shows "Invalid Date" when MacLoggerDX
+  returns a date string that `new Date()` cannot parse; falls back to raw string.
+- Path traversal attack on `/themes/<name>.json` now blocked with a 403.
+- SSE `EventSource` now stops retrying after 5 consecutive failures instead
+  of reconnecting forever when the proxy is down.
+- Python module docstring corrected: 3.6+ → 3.7+.
+### Changed
+- New-spot indicator (●) column moved to first position in the table for
+  quicker visual scanning; column is compact (24px).
+- Status bar now shows a live countdown ("Next refresh: M:SS") instead of
+  a static "Auto-refresh: every N min" label.
+- Even table rows get a subtle stripe via new `--row-stripe` CSS variable
+  (theme-aware; transparent on dark themes, faint on light themes).
+- Row divider color uses new `--row-border` CSS variable; all bundled themes
+  updated with both new variables.
+- Status line gains a left border that color-matches the current state
+  (green/amber/red).
+- Vertical divider added between the refresh controls and auto-scan pills.
+- Park name truncation threshold raised 36 → 44 characters (max-width 240 → 300px).
+- Location and recent-age columns use theme text color at reduced opacity
+  instead of a fixed dim color, improving legibility across all themes.
+- Disabled scan-pill opacity raised 0.35 → 0.70 for better legibility.
+- `import inspect` moved to top-level (was inside the `/tune/` hot path).
+- Duplicate `datetime` import inside `get_worked()` loop removed.
+- `%-d` strftime directive replaced with an f-string for Windows portability.
+### Documentation
+- `CONTRIBUTING.md` updated to reference `www/` files instead of the legacy
+  `PotaSpotHunter.html`.
+- Release workflow comment block updated to match actual zip contents.
+- `.claude/` and `.playwright-mcp/` added to `.gitignore`.
+
 ## [1.10.0] - 2026-04-08
 ### Added
 - **Worked callsign indicator** — when MacLoggerDX backend is selected,
