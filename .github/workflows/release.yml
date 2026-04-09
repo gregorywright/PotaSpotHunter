@@ -108,7 +108,7 @@ jobs:
               "3. **Click-to-tune** *(optional)* \u2014 start MacLoggerDX, flrig, or rigctld, "
               "select it from the **Rig Control** dropdown, then click any spot row or map "
               "marker to tune your radio.\n\n"
-              "> Requires Python 3.6+.\n\n---\n\n"
+              "> Requires Python 3.7+.\n\n---\n\n"
           )
 
           # Write to a file so the next step can read it cleanly
