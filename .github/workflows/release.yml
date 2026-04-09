@@ -30,11 +30,13 @@
 #
 # FILES INCLUDED IN THE RELEASE ZIP
 # -----------------------------------
-# PotaSpotHunter.html   — the web UI
+# www/                  — the web UI (index.html, style.css, app.js)
+# themes/               — color theme JSON files
 # PotaProxy.py          — the local proxy server
 # VERSION               — version number
 # README.md             — documentation
 # CHANGELOG.md          — version history
+# THEMES.md             — theme authoring guide
 # LICENSE               — MIT license
 # requirements.txt      — (empty — documents no dependencies)
 

@@ -97,11 +97,12 @@ Python standard library used:
 
 REQUIREMENTS
 ------------
-  Python 3.6+    (no third-party packages needed)
+  Python 3.7+    (no third-party packages needed)
   flrig          running and connected to the radio
 """
 
 import argparse
+import inspect
 import json
 import logging
 import pathlib
@@ -808,11 +809,10 @@ return result
                 count = 0
             last_date = last_date_str.strip() or None
             # MLDX returns dates like "Saturday, April 4, 2026 at 14:28:49"
-            # Check if today's date appears in the string
-            from datetime import datetime, timezone
-            today_utc = datetime.now(timezone.utc).strftime('%Y-%m-%d')
-            # Also check month/day/year format that MLDX uses
-            today_mldx = datetime.now(timezone.utc).strftime('%B %-d, %Y')
+            # Check if today's date appears in the string.
+            # Use str(day) to avoid %-d which is not portable to Windows.
+            now_utc = datetime.now(timezone.utc)
+            today_mldx = f"{now_utc.strftime('%B')} {now_utc.day}, {now_utc.year}"
             worked_today = bool(last_date and (today_utc in last_date or today_mldx in last_date))
             results[call] = {
                 'count':         count,
@@ -949,6 +949,22 @@ return result
 
 
 # ════════════════════════════════════════════════════════════
+# BACKEND: none (display only)
+# ════════════════════════════════════════════════════════════
+
+class NoneBackend(RigBackend):
+    """No-op backend — browse spots without sending any rig commands."""
+
+    name = "none"
+
+    def tune(self, freq_hz: int, mode: str) -> None:
+        log.info("none  (display only — no tune sent)")
+
+    def ping(self) -> str:
+        return "ok"
+
+
+# ════════════════════════════════════════════════════════════
 # BACKEND REGISTRY
 # ════════════════════════════════════════════════════════════
 #
@@ -973,6 +989,7 @@ def _build_backends(args):
         "mldx":    MacLoggerDXBackend(),
         "flrig":   FlrigBackend(host=args.rig_host, port=args.rig_port),
         "rigctld": RigctldBackend(host=args.rig_host, port=args.rigctld_port),
+        "none":    NoneBackend(),
     }
 
 
@@ -1151,7 +1168,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
             broker.close_current()
             self._json_response(200, {"ok": True})
         else:
-            self._send_error(404, "Not found")
+            self._json_response(404, {"ok": False, "error": "Not found"})
 
     def do_GET(self):
         parsed   = urlparse(self.path)
@@ -1174,7 +1191,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
             filename, content_type = STATIC.get(path, STATIC[""])
             file_path = WWW / filename
             if not file_path.exists():
-                self._send_error(404, f"{filename} not found in www/")
+                self._json_response(404, {"ok": False, "error": f"{filename} not found in www/"})
                 return
             content = file_path.read_bytes()
             self.send_response(200)
@@ -1281,7 +1298,11 @@ class ProxyHandler(BaseHTTPRequestHandler):
         # ── Route: /themes/<name>.json ───────────────────────
         # Serves individual theme JSON files from the themes/ directory.
         if path.startswith("/themes/") and path.endswith(".json"):
-            theme_file = pathlib.Path(__file__).parent / path.lstrip("/")
+            themes_dir = pathlib.Path(__file__).parent / "themes"
+            theme_file = (themes_dir / path[len("/themes/"):]).resolve()
+            if not str(theme_file).startswith(str(themes_dir.resolve())):
+                self._json_response(403, {"ok": False, "error": "Forbidden"})
+                return
             if not theme_file.exists() or not theme_file.is_file():
                 self._json_response(404, {"error": "Theme not found"})
                 return
@@ -1390,7 +1411,6 @@ class ProxyHandler(BaseHTTPRequestHandler):
                 # base signature tune(freq_hz, mode) and will ignore extras
                 # if we use inspect to check, but it's cleaner to just try
                 # with kwargs and let Python raise TypeError if unsupported.
-                import inspect
                 sig = inspect.signature(backend.tune)
                 kwargs = {}
                 if "callsign" in sig.parameters:
@@ -1502,7 +1522,7 @@ def main():
     # The user must explicitly select a backend in the UI to activate it.
     # This prevents MLDX AppleScript calls before the user opts in.
     _active_backend_lock = threading.Lock()
-    _active_backend = [backends['none']] if 'none' in backends else [list(backends.values())[-1]]
+    _active_backend = [backends['none']]
 
     def get_active_backend():
         with _active_backend_lock:

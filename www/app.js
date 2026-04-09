@@ -78,12 +78,16 @@ let workedCache = {};
 // Open the SSE push channel. Called once after the proxy is confirmed running.
 // EventSource reconnects automatically if the proxy restarts.
 let _eventSource = null;
+let _eventSourceRetries = 0;
+const _MAX_SSE_RETRIES = 5;
+
 function openEventSource() {
   if (_eventSource) return;
   const es = new EventSource(`${PROXY_BASE}/events`);
   _eventSource = es;
 
   es.addEventListener('worked_update', e => {
+    _eventSourceRetries = 0;  // reset on successful message
     const { call, entry } = JSON.parse(e.data);
     workedCache[call] = entry;
     render();
@@ -94,6 +98,18 @@ function openEventSource() {
     _eventSource = null;
     showConflictError();
   });
+
+  // Prevent infinite reconnection loops if the proxy is down.
+  // Native EventSource auto-reconnects on error; we close it after
+  // a few failures and let the user retry manually.
+  es.onerror = () => {
+    _eventSourceRetries++;
+    if (_eventSourceRetries >= _MAX_SSE_RETRIES) {
+      es.close();
+      _eventSource = null;
+      console.warn('SSE: gave up after', _MAX_SSE_RETRIES, 'failed attempts');
+    }
+  };
 
   // Release the SSE slot immediately when this tab closes or navigates away.
   // sendBeacon is reliable for this use case; the 5s heartbeat catches any
@@ -597,9 +613,11 @@ function render() {
     let workedBadge = '';
     let workedTip   = '';
     if (worked && worked.count > 0) {
-      const lastStr = worked.last_date
-        ? new Date(worked.last_date).toLocaleDateString()
-        : 'unknown date';
+      let lastStr = 'unknown date';
+      if (worked.last_date) {
+        const d = new Date(worked.last_date);
+        lastStr = isNaN(d.getTime()) ? worked.last_date : d.toLocaleDateString();
+      }
       workedTip = `Worked ${worked.count} time${worked.count !== 1 ? 's' : ''}. Last: ${lastStr}`;
 
       let dot = '';
@@ -685,8 +703,9 @@ function render() {
 // The backend name in the path makes routing explicit and extensible —
 // new backends are added to pota_proxy.py without changing this URL structure.
 //
-// PROXY BASE URL — change this if you run pota_proxy.py on a non-default port.
-const PROXY_BASE = 'http://localhost:8080';
+// PROXY BASE URL — derived from the page origin since the proxy serves the HTML.
+// This automatically works with any --port value.
+const PROXY_BASE = window.location.origin;
 
 // Show a styled modal dialog explaining a rig connectivity failure.
 // Two distinct failure cases get different instructions:

@@ -6,7 +6,9 @@ Thanks for your interest in contributing!
 
 | File | Purpose |
 |------|---------|
-| `PotaSpotHunter.html` | Self-contained web UI — edit this directly |
+| `www/index.html` | HTML shell — served by proxy |
+| `www/style.css` | All CSS styles |
+| `www/app.js` | All JavaScript |
 | `PotaProxy.py` | Local Python proxy server |
 | `tests/` | Unit tests for the proxy |
 | `build.py` | Developer utility (run tests, future: build HTML from source) |
@@ -19,7 +21,7 @@ python3 PotaProxy.py
 ```
 
 This starts the proxy on `localhost:8080` and opens the browser automatically.
-No build step required — just edit `PotaSpotHunter.html` and reload the browser.
+No build step required — edit files in `www/` and reload the browser.
 
 ## Running the tests
 
