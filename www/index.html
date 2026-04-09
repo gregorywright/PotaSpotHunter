@@ -188,6 +188,8 @@
     </span>
 
 
+    <span class="ctrl-divider"></span>
+
     <span class="ctrl-group">
       <span class="ctrl-label">Auto Scan</span>
       <div id="auto-scan-pills" data-tip="Auto-tune dwell time per spot. Any click or keypress stops scanning.">
@@ -210,6 +212,7 @@
     <table id="spot-table">
       <thead>
         <tr>
+          <th data-col="new" class="col-new" data-tip="New since last refresh — click to sort">●</th>
           <th data-col="freq" class="sort-asc">Freq (kHz)</th>
           <th data-col="mode">Mode</th>
           <th data-col="callsign">Callsign</th>
@@ -218,7 +221,6 @@
           <th data-col="park">Park Name</th>
           <th data-col="loc">Location</th>
           <th data-col="time">Last Heard</th>
-          <th data-col="new" data-tip="New since last refresh">New</th>
         </tr>
       </thead>
       <tbody id="spot-tbody"></tbody>

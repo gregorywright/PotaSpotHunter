@@ -114,13 +114,15 @@
     font-size: 11px;
     color: var(--text-dim);
     flex: 1;
-    padding-left: 6px;
+    padding: 3px 10px;
+    border-left: 2px solid var(--border);
+    margin-left: 6px;
   }
 
-  #status-line.loading { color: var(--amber); }
-  #status-line.error   { color: var(--red); }
-  #status-line.ok      { color: var(--green-dim); }
-  #status-line.warning { color: var(--amber); }
+  #status-line.loading { color: var(--amber); border-left-color: var(--amber); }
+  #status-line.error   { color: var(--red); border-left-color: var(--red); }
+  #status-line.ok      { color: var(--green-dim); border-left-color: var(--green-dim); }
+  #status-line.warning { color: var(--amber); border-left-color: var(--amber); }
 
   /* ── Controls bar ─────────────────────────────────────── */
   #controls {
@@ -200,6 +202,15 @@
   #btn-refresh.spinning svg { animation: spin 0.8s linear infinite; opacity: 0.5; }
   #btn-refresh.spinning { cursor: default; }
 
+  /* ── Toolbar divider ──────────────────────────────────── */
+  .ctrl-divider {
+    width: 1px;
+    height: 20px;
+    background: var(--border);
+    margin: 0 4px;
+    flex-shrink: 0;
+  }
+
   /* ── Auto-scan pill control ───────────────────────────── */
   #auto-scan-pills {
     display: flex;
@@ -228,8 +239,10 @@
   .scan-pill:last-child { border-right: none; }
   .scan-pill:hover { background: var(--surface); color: var(--text); }
   .scan-pill:disabled {
-    opacity: 0.35;
+    opacity: 0.7;
     cursor: not-allowed;
+    border-right-color: var(--border);
+    color: var(--text-dim);
   }
   .scan-pill:disabled:hover { background: var(--surface2); color: var(--text-dim); }
   .scan-pill.active {
@@ -305,12 +318,13 @@
 
   td {
     padding: 5px 8px;
-    border-bottom: 1px solid #181b18;
+    border-bottom: 1px solid var(--row-border, #181b18);
     vertical-align: middle;
     white-space: nowrap;
   }
 
   tr { transition: background 0.08s; }
+  tr:nth-child(even) td { background: var(--row-stripe, transparent); }
   tr:hover td { background: var(--surface2); cursor: pointer; }
   /* Active spot gets a green background — combined with the amber left bar
      it clearly distinguishes the currently selected/scanning spot. */
@@ -322,12 +336,12 @@
   td.mode    { color: #8eb88e; font-size: 11px; letter-spacing: 0.08em; }
   td.callsign { color: var(--text-bright); font-size: 13px; font-weight: bold; letter-spacing: 0.06em; }
   td.ref     { color: #7ab4ff; font-size: 11px; }
-  td.park    { color: var(--text); max-width: 240px; overflow: hidden; text-overflow: ellipsis; font-family: var(--ui); font-size: 12px; }
+  td.park    { color: var(--text); max-width: 300px; overflow: hidden; text-overflow: ellipsis; font-family: var(--ui); font-size: 12px; }
   td.parktype { text-align: center; font-size: 14px; width: 28px; min-width: 28px; }
-  td.loc     { color: var(--text-dim); font-size: 11px; }
+  td.loc     { color: var(--text); font-size: 11px; opacity: 0.75; }
   td.age     { font-size: 11px; }
   td.age.fresh  { color: var(--green); }
-  td.age.recent { color: #8eb88e; }
+  td.age.recent { color: var(--text); opacity: 0.8; }
   td.age.old    { color: var(--text-dim); }
 
 
@@ -822,14 +836,21 @@
                scan-bar-pulse 1.4s ease-in-out infinite;
   }
 
-  /* ── New spot badge ───────────────────────────────────── */
-  /* Shown in the New column for spots that appeared in the most recent
-     refresh.  Cleared automatically on the next refresh cycle. */
-  td.new-spot {
+  /* ── New spot column ──────────────────────────────────── */
+  /* Narrow first column showing a green dot for new spots.
+     Fixed width so it takes minimal horizontal space. */
+  th.col-new, td.col-new {
+    width: 24px;
+    min-width: 24px;
+    max-width: 24px;
     text-align: center;
-    font-size: 14px;
+    padding: 5px 2px;
+  }
+  th.col-new { color: var(--green); font-size: 12px; }
+  td.col-new {
+    font-size: 10px;
     color: var(--green);
-    text-shadow: 0 0 8px rgba(57,255,106,0.6);
+    text-shadow: 0 0 6px rgba(57,255,106,0.4);
   }
   /* ── Custom tooltip ──────────────────────────────────── */
   /* Replaces native title= tooltips for consistent styling and

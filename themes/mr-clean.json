@@ -9,5 +9,7 @@
   "--text": "#1f2328", "--text-dim": "#656d76", "--text-bright": "#000000",
   "--tooltip-bg": "#f6f8fa", "--tooltip-text": "#1f2328",
   "--scanline": "transparent",
+  "--row-stripe": "rgba(0,0,0,0.025)",
+  "--row-border": "#e4e8ec",
   "--map-filter": "none"
 }

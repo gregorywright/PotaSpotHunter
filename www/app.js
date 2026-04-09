@@ -557,8 +557,7 @@ function render() {
       case 'loc':
         return dir * (a.locationDesc || '').localeCompare(b.locationDesc || '');
       case 'new':
-        // Sort new spots first (asc = new first since '1' > '0' would be wrong,
-        // so we invert: new=1 sorts before not-new=0 when dir is asc)
+        // New spots first when ascending (invert direction so 1 sorts before 0)
         return -dir * ((newSpotIds.has(a.spotId) ? 1 : 0) - (newSpotIds.has(b.spotId) ? 1 : 0));
       case 'time':
       default:
@@ -647,6 +646,7 @@ function render() {
 
     return `<tr data-id="${id}" data-freq="${esc(freqKhz)}" data-mode="${esc(modeRaw)}"
                 data-callsign="${esc(callsign)}" data-ref="${esc(ref)}" data-park="${esc(park)}">
+      <td class="col-new"${isNew ? ' data-tip="New spot since last refresh"' : ''}>${isNew ? '●' : ''}</td>
       <td class="freq">${esc(freqKhz)}</td>
       <td class="mode">${esc(modeDisp)}</td>
       <td class="callsign" data-tip="${workedTip || ('https://pota.app/#/profile/' + esc(callsign))}"><a class="spot-link" href="https://pota.app/#/profile/${esc(callsign)}" target="_blank">${esc(callsign)}</a>${workedBadge}</td>
@@ -656,10 +656,9 @@ function render() {
         parkTypeCache[ref] === null      ? '⏳' :      // fetch in-flight
         parkTypeEmoji(classifyParkType(parkTypeCache[ref]))  // resolved
       }</td>
-      <td class="park" data-tip="${esc(park)}">${esc(park.length > 36 ? park.slice(0,34)+'…' : park)}</td>
+      <td class="park" data-tip="${esc(park)}">${esc(park.length > 44 ? park.slice(0,42)+'…' : park)}</td>
       <td class="loc" data-tip="${esc(fmtLocationFull(loc))}">${esc(fmtLocation(loc))}</td>
       <td class="age ${age.cls}" data-tip="${fmtUTC(spotTime)}">${age.text}</td>
-      <td class="new-spot" data-tip="New since last refresh">${isNew ? '&#9679;' : ''}</td>
     </tr>`;
   });
 
@@ -1394,17 +1393,24 @@ document.querySelectorAll('th[data-col]').forEach(th => {
 // We never auto-refresh when the tab is hidden (document.hidden)
 // to avoid waking the network unnecessarily.
 let autoRefreshTimer = null;
+let countdownTimer  = null;
 
 function startAutoRefresh() {
   if (autoRefreshTimer) {
     clearInterval(autoRefreshTimer);
     autoRefreshTimer = null;
   }
+  if (countdownTimer) {
+    clearInterval(countdownTimer);
+    countdownTimer = null;
+  }
   const minutes = parseInt(document.getElementById('refresh-interval').value, 10);
   if (minutes > 0) {
     autoRefreshTimer = setInterval(() => {
       if (!document.hidden) fetchSpots();
     }, minutes * 60 * 1000);
+    // Update the countdown every second
+    countdownTimer = setInterval(updateRefreshLabel, 1000);
   }
   updateRefreshLabel();
 }
@@ -1413,9 +1419,19 @@ function updateRefreshLabel() {
   const minutes = parseInt(document.getElementById('refresh-interval').value, 10);
   const el = document.getElementById('last-fetch');
   const fetchStr = lastFetch ? 'Last fetch: ' + fmtUTC(lastFetch) : '';
-  const intervalStr = minutes > 0
-    ? '  |  Auto-refresh: every ' + minutes + ' min'
-    : '  |  Auto-refresh: off';
+
+  let intervalStr;
+  if (minutes > 0 && lastFetch) {
+    const nextAt  = lastFetch.getTime() + minutes * 60 * 1000;
+    const secLeft = Math.max(0, Math.ceil((nextAt - Date.now()) / 1000));
+    const m = Math.floor(secLeft / 60);
+    const s = String(secLeft % 60).padStart(2, '0');
+    intervalStr = `  |  Next refresh: ${m}:${s}`;
+  } else if (minutes > 0) {
+    intervalStr = '  |  Auto-refresh: every ' + minutes + ' min';
+  } else {
+    intervalStr = '  |  Auto-refresh: off';
+  }
   el.textContent = fetchStr + intervalStr;
 }
 
@@ -1977,7 +1993,9 @@ const THEMES = {
     '--text': '#00cc33', '--text-dim': '#006618', '--text-bright': '#00ff41',
     '--tooltip-bg': '#0a0f0a', '--tooltip-text': '#00ff41',
     '--scanline': 'rgba(0,255,65,0.03)',
-    '--map-filter': 'brightness(0.6) saturate(0.4) hue-rotate(100deg)',
+    '--row-stripe': 'transparent',
+    '--row-border': '#0a1a0a',
+    '--map-filter': 'brightness(0.45) saturate(0.3) contrast(1.2) hue-rotate(100deg)',
   },
 };
 
