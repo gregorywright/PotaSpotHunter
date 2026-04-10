@@ -580,6 +580,76 @@
   }
   #rig-error-close:hover { background: #3a1010; }
 
+  /* ── Backend-down modal ───────────────────────────────── */
+  /* Shown when the proxy monitor detects the active backend has gone
+     offline. Blocks interaction but preserves all state so the user
+     can just restart their rig software and resume where they left off. */
+  #backend-down-dialog {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.8);
+    z-index: 2000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  #backend-down-box {
+    background: var(--surface2);
+    border: 1px solid var(--amber);
+    border-radius: 4px;
+    width: min(440px, 90vw);
+    box-shadow: 0 0 40px rgba(255,176,0,0.15);
+    font-family: var(--ui);
+  }
+  #backend-down-title {
+    background: #1e1400;
+    border-bottom: 1px solid var(--amber);
+    padding: 10px 16px;
+    font-size: 14px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    color: var(--amber);
+  }
+  #backend-down-body {
+    padding: 16px;
+    font-size: 13px;
+    line-height: 1.6;
+    color: var(--text);
+  }
+  #backend-down-body p { margin-bottom: 8px; }
+  #backend-down-body strong { color: var(--text-bright); }
+  #backend-down-body em     { color: var(--amber); font-style: normal; }
+  .backend-down-waiting { color: var(--text-dim); }
+  .backend-down-spinner {
+    display: inline-block;
+    animation: spin 1.5s linear infinite;
+    margin-right: 4px;
+  }
+  .backend-down-detail {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-top: 10px;
+  }
+  #backend-down-footer {
+    padding: 10px 16px;
+    border-top: 1px solid var(--border);
+    text-align: right;
+  }
+  #backend-down-continue {
+    font-family: var(--ui);
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    background: #1e1400;
+    color: var(--amber);
+    border: 1px solid var(--amber);
+    border-radius: 3px;
+    padding: 5px 18px;
+    cursor: pointer;
+  }
+  #backend-down-continue:hover { background: #2a1c00; }
 
   /* ── Tooltip for park name overflow ──────────────────── */
   td.park { position: relative; }

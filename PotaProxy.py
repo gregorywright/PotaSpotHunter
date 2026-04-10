@@ -641,11 +641,28 @@ class MacLoggerDXBackend(RigBackend):
     # when the lookup response arrives.  1.5 s matches the original AppleScript.
     LOOKUP_DELAY = 1.5
 
+    def _mldx_is_running(self) -> bool:
+        """Return True if MacLoggerDX is in the running process list.
+        Uses System Events so we never accidentally launch MLDX by addressing it."""
+        result = self._osascript([
+            'tell application "System Events"',
+            'return (name of processes) contains "MacLoggerDX"',
+            'end tell',
+        ])
+        return result.strip() == 'true'
+
     def ping(self) -> str:
         """
         Check that MacLoggerDX is running by fetching its version string
         via AppleScript.  Raises RuntimeError if MacLoggerDX is not running.
+
+        IMPORTANT: We must check the running process list via System Events
+        BEFORE sending 'tell application "MacLoggerDX"' — a bare tell will
+        launch MLDX if it is not already running, which is the opposite of
+        what a ping should do.
         """
+        if not self._mldx_is_running():
+            raise RuntimeError("MacLoggerDX is not running")
         result = self._osascript([
             'tell application "MacLoggerDX"',
             'get version',
@@ -749,6 +766,11 @@ class MacLoggerDXBackend(RigBackend):
                              last_mode=None, last_freq_mhz=None, last_park_ref=None}}
         """
         if not callsigns:
+            return {}
+
+        # Guard: don't send 'tell application "MacLoggerDX"' if MLDX is not
+        # already running — that would silently launch it.
+        if not self._mldx_is_running():
             return {}
 
         from datetime import datetime, timezone
@@ -1042,6 +1064,56 @@ def _worked_cache_worker(get_active_backend):
 
         for call, entry in updates.items():
             broker.publish('worked_update', {'call': call, 'entry': entry})
+
+
+def _backend_monitor_worker(get_active_backend, interval=10):
+    """
+    Background thread that periodically pings the active backend and
+    publishes 'backend_status' SSE events when status changes.
+
+    Only fires an event on transition (up→down or down→up), not on
+    every poll.  Skips NoneBackend entirely.  Resets state when the
+    active backend changes so the first check after a switch always
+    publishes an event.
+    """
+    import time
+    last_name = None
+    last_ok   = None
+
+    while True:
+        time.sleep(interval)
+        backend = get_active_backend()
+        name    = backend.name
+
+        if name == 'none':
+            last_name = None
+            last_ok   = None
+            continue
+
+        # Backend switched — treat status as unknown so first check fires
+        if name != last_name:
+            last_name = name
+            last_ok   = None
+
+        try:
+            backend.ping()
+            ok    = True
+            error = None
+        except Exception as exc:
+            ok    = False
+            error = str(exc)
+
+        if ok != last_ok:
+            last_ok = ok
+            broker.publish('backend_status', {
+                'backend': name,
+                'ok':      ok,
+                'error':   error,
+            })
+            if ok:
+                log.info("Backend '%s' reconnected.", name)
+            else:
+                log.warning("Backend '%s' went down: %s", name, error)
 
 
 # ════════════════════════════════════════════════════════════
@@ -1575,6 +1647,16 @@ def main():
         name="worked-cache-worker",
     )
     worker.start()
+
+    # Start backend monitor thread — pings the active backend every 10s
+    # and publishes 'backend_status' SSE events on status changes.
+    monitor = threading.Thread(
+        target=_backend_monitor_worker,
+        args=(get_active_backend,),
+        daemon=True,
+        name="backend-monitor",
+    )
+    monitor.start()
 
     # Bind to localhost only — never expose this to the network.
     server = ThreadingHTTPServer(("127.0.0.1", args.port), ProxyHandler)

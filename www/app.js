@@ -81,6 +81,10 @@ let _eventSource = null;
 let _eventSourceRetries = 0;
 const _MAX_SSE_RETRIES = 5;
 
+// Dwell saved when a backend-down event stops auto-scan.
+// Restored when the backend reconnects and the modal is dismissed.
+let _backendDownDwell = 0;
+
 function openEventSource() {
   if (_eventSource) return;
   const es = new EventSource(`${PROXY_BASE}/events`);
@@ -97,6 +101,22 @@ function openEventSource() {
     es.close();
     _eventSource = null;
     showConflictError();
+  });
+
+  // Backend went down or came back — push from the proxy monitor thread.
+  es.addEventListener('backend_status', e => {
+    _eventSourceRetries = 0;
+    const { backend, ok, error } = JSON.parse(e.data);
+    if (!ok) {
+      const sel = document.getElementById('rig-select');
+      if (sel && sel.value === backend) {
+        _backendDownDwell = autoScanDwell;
+        autoScanStop();
+        showBackendDownModal(backend, error);
+      }
+    } else {
+      dismissBackendDownModal(backend);
+    }
   });
 
   // Prevent infinite reconnection loops if the proxy is down.
@@ -710,12 +730,13 @@ const PROXY_BASE = window.location.origin;
 // Two distinct failure cases get different instructions:
 //   proxyDown  — pota_proxy.py is not running at all
 //   backendDown — proxy is running but it can't reach the rig software
-function showRigError(backend, proxyDown, detail) {
+function showRigError(backend, proxyDown) {
   // Remove any existing dialog
   const old = document.getElementById('rig-error-dialog');
   if (old) old.remove();
 
   const backendLabel = {
+    mldx:    'MacLoggerDX',
     flrig:   'flrig',
     rigctld: 'rigctld (Hamlib)',
   }[backend] || backend;
@@ -727,23 +748,19 @@ function showRigError(backend, proxyDown, detail) {
     <p>The proxy must be running before you can use the
     <em>${backendLabel}</em> rig control backend.</p>`;
 
+  const mldxInstructions = `
+    <p><strong>MacLoggerDX is not reachable.</strong></p>
+    <p>Make sure MacLoggerDX is open and running on this Mac.</p>`;
+
   const backendInstructions = `
     <p><strong>${backendLabel} is not reachable.</strong></p>
-    <p>pota_proxy.py is running, but it cannot connect to
-    <em>${backendLabel}</em>. Make sure:</p>
+    <p>Make sure:</p>
     <ul>
       <li>${backendLabel} is open and running on this machine.</li>
       <li>The radio (or a virtual serial port) is connected.</li>
-      <li>${backendLabel} is configured to listen on the default port
+      <li>${backendLabel} is listening on the default port
           ${backend === 'flrig' ? '(12345)' : '(4532)'}.</li>
-    </ul>
-    ${backend === 'rigctld' ? `
-    <p>To install Hamlib and start rigctld:</p>
-    <pre>brew install hamlib          # macOS (Homebrew)
-sudo apt install libhamlib-utils  # Linux
-rigctld -m &lt;model&gt; -r /dev/ttyUSB0 &amp;</pre>
-    <p>Find your radio's model number with: <code>rigctld -l</code></p>` : ''}
-    ${detail ? '<p class="detail">Detail: ' + esc(detail) + '</p>' : ''}`;
+    </ul>`;
 
   const dialog = document.createElement('div');
   dialog.id = 'rig-error-dialog';
@@ -751,7 +768,7 @@ rigctld -m &lt;model&gt; -r /dev/ttyUSB0 &amp;</pre>
     <div id="rig-error-box">
       <div id="rig-error-title">&#9888; Rig Control — ${backendLabel} Unreachable</div>
       <div id="rig-error-body">
-        ${proxyDown ? proxyInstructions : backendInstructions}
+        ${proxyDown ? proxyInstructions : backend === 'mldx' ? mldxInstructions : backendInstructions}
       </div>
       <div id="rig-error-footer">
         <button id="rig-error-close">Dismiss</button>
@@ -761,6 +778,58 @@ rigctld -m &lt;model&gt; -r /dev/ttyUSB0 &amp;</pre>
   document.getElementById('rig-error-close').addEventListener('click', () => dialog.remove());
   // Also dismiss on backdrop click
   dialog.addEventListener('click', e => { if (e.target === dialog) dialog.remove(); });
+}
+
+// Show a blocking modal when the backend monitor detects a disconnect.
+// Does NOT reset the dropdown — the user's backend choice is preserved so
+// restarting the rig software resumes automatically.
+// Saves and stops auto-scan; restores it when the backend reconnects.
+function showBackendDownModal(backend, error) {
+  if (document.getElementById('backend-down-dialog')) return;  // already showing
+
+  const label = { mldx: 'MacLoggerDX', flrig: 'flrig', rigctld: 'rigctld (Hamlib)' }[backend] || backend;
+  const dialog = document.createElement('div');
+  dialog.id = 'backend-down-dialog';
+  dialog.dataset.backend = backend;
+  dialog.innerHTML = `
+    <div id="backend-down-box">
+      <div id="backend-down-title">&#9888; ${label} Disconnected</div>
+      <div id="backend-down-body">
+        <p><strong>${label}</strong> stopped responding. Rig control is paused.</p>
+        <p>Your spot list and worked data are intact. Restart <em>${label}</em>
+           and this dialog will dismiss automatically.</p>
+        <p class="backend-down-waiting">
+          <span class="backend-down-spinner">&#8635;</span>
+          Waiting for ${label} to reconnect…
+        </p>
+        ${error ? `<p class="backend-down-detail">Detail: ${esc(error)}</p>` : ''}
+      </div>
+      <div id="backend-down-footer">
+        <button id="backend-down-continue">Continue without rig control</button>
+      </div>
+    </div>`;
+  document.body.appendChild(dialog);
+
+  document.getElementById('backend-down-continue').addEventListener('click', () => {
+    _backendDownDwell = 0;  // suppress scan restart on reconnect
+    fetch(`${PROXY_BASE}/set_backend?backend=none`).catch(() => {});
+    document.getElementById('rig-select').value = 'none';
+    updateScanPills();
+    dialog.remove();
+  });
+}
+
+// Called when 'backend_status ok:true' arrives for the named backend.
+// Dismisses the modal (if showing) and restores auto-scan if it was running.
+function dismissBackendDownModal(backend) {
+  const dialog = document.getElementById('backend-down-dialog');
+  if (!dialog || dialog.dataset.backend !== backend) return;
+  dialog.remove();
+  if (_backendDownDwell > 0) {
+    const dwell = _backendDownDwell;
+    _backendDownDwell = 0;
+    autoScanStart(dwell);
+  }
 }
 
 // Show a blocking "Connecting…" overlay while a backend ping is in flight.
@@ -791,10 +860,9 @@ function hideConnecting() {
 async function pingRigBackend(backend) {
   const sel = document.getElementById('rig-select');
 
-  // mldx and none don't use the proxy — nothing to ping
-  if (backend === 'mldx' || backend === 'none') return;
+  if (backend === 'none') return;
 
-  const backendLabel = { flrig: 'flrig', rigctld: 'rigctld' }[backend] || backend;
+  const backendLabel = { mldx: 'MacLoggerDX', flrig: 'flrig', rigctld: 'rigctld' }[backend] || backend;
 
   // Block the UI while we wait — rigctld can take several seconds to
   // respond if the rig software is not running (TCP timeout).
@@ -813,13 +881,13 @@ async function pingRigBackend(backend) {
     if (!data.ok) {
       sel.value = 'none';
       updateScanPills();
-      showRigError(backend, false, data.error);
+      showRigError(backend, false);
     }
   } catch (err) {
     hideConnecting();
     sel.value = 'none';
     updateScanPills();
-    showRigError(backend, true, null);
+    showRigError(backend, true);
   }
 }
 

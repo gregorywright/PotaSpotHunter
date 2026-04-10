@@ -83,6 +83,30 @@ running. The user can retry; the proxy auto-opens the browser on startup.
 
 ## Key design decisions (don't reverse without good reason)
 
+### Backend monitor — preserve state on disconnect, don't reset to None
+`_backend_monitor_worker` in `PotaProxy.py` pings the active backend every 10s
+and publishes a `backend_status` SSE event only on status *change* (up→down or
+down→up). Skips NoneBackend. Resets tracking when the active backend changes.
+
+On `backend_status {ok: false}` the browser:
+- Saves the current auto-scan dwell in `_backendDownDwell`
+- Stops auto-scan (scan position / `activeSpotId` preserved)
+- Shows `#backend-down-dialog` (amber-themed blocking modal)
+- Does **NOT** reset the rig dropdown or clear `workedCache`
+
+The modal has one button — "Continue without rig control" — which:
+- Clears `_backendDownDwell` (suppresses scan restart on reconnect)
+- Sends `GET /set_backend?backend=none` to sync the proxy
+- Resets the dropdown to None and updates scan pills
+- Dismisses the modal
+
+On `backend_status {ok: true}` the browser auto-dismisses the modal and
+restores auto-scan at the saved dwell if `_backendDownDwell > 0`.
+
+**Don't** reset the dropdown automatically on disconnect — the user's backend
+choice must be preserved so restarting the rig software resumes seamlessly.
+**Don't** clear `workedCache` — UDP-sourced QSO data cannot be recovered.
+
 ### Split mode — always turned off on tune
 All three backends explicitly turn off split mode on every tune command:
 - **flrig**: `client.rig.set_split(0)`
