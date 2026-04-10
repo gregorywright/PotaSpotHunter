@@ -296,6 +296,9 @@ MacLoggerDX further converts to MHz for AppleScript.
 | `parkTypeCache` | Object | Maps park ref → parktypeDesc string from `api.pota.app/park/<ref>`. `undefined` = not fetched, `null` = in-flight, `''` = failed/unknown, string = resolved. Never cleared. |
 | `parkRenderTimer` | timeout id | Debounce timer for render() triggered by park type fetch completions. 200ms debounce coalesces rapid completions. |
 | `workedCache` | Object | Snapshot of proxy's worked_cache, keyed by callsign. Populated by fetchWorked() after each spot refresh when MLDX backend is active. Each entry: `{count, last_date, worked_today, last_band, last_mode, last_freq_mhz, last_park_ref}`. |
+| `_backendDownDwell` | number | Dwell (seconds) saved when backend-down event stops auto-scan. Restored on reconnect to resume scanning. 0 means scan was not running or user chose "Continue without rig control". |
+| `_eventSource` | EventSource\|null | SSE connection to proxy `/events`. Null when closed. |
+| `_eventSourceRetries` | number | Consecutive SSE connection failures. Closes connection after `_MAX_SSE_RETRIES` (5). |
 
 ---
 
@@ -341,6 +344,9 @@ Dwell options: Off, 5s, 10s, 30s, 1m. (1s was removed — too fast.)
 | `#btn-refresh.spinning` | refresh button | SVG rotates while fetch is in flight |
 | `#version-label` | span in logo | Displays "v1.4.0" fetched from proxy at startup |
 | `.ctrl-group` | span in toolbar | Wraps label+control as atomic wrap unit |
+| `.ctrl-divider` | span in toolbar | Vertical divider between toolbar groups |
+| `td.col-new` / `th.col-new` | new-spot column | First column — 24px, shows ● for new spots |
+| `#backend-down-dialog` | body overlay | Amber blocking modal shown when backend goes offline. Has `data-backend` attribute. |
 
 ---
 
