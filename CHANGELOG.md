@@ -1,3 +1,19 @@
+## [1.11.1] - 2026-04-10
+### Fixed
+- Backend monitor thread now pings the active backend every 10 seconds and
+  publishes a `backend_status` SSE event only on status change, preventing
+  spurious disconnected/reconnected dialogs.
+- MacLoggerDX `ping()` and `get_worked()` now guard against launching MLDX
+  when it is not already running (via `_mldx_is_running()` System Events check).
+- Selecting MacLoggerDX from the dropdown now immediately pings it and shows
+  an error dialog if MLDX is not running (previously the ping was skipped).
+### Added
+- Backend disconnect/reconnect dialog — when the active rig backend goes
+  offline, an amber blocking modal pauses auto-scan (saving dwell); on
+  reconnect the modal auto-dismisses and auto-scan resumes at the saved rate.
+  A "Continue without rig control" button switches to None without restarting
+  scan.
+
 ## [1.11.0] - 2026-04-09
 ### Fixed
 - `NoneBackend` added so selecting "None" rig backend correctly syncs with
