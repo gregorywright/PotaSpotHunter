@@ -124,6 +124,7 @@ class Log4OmBackend(RigBackend):
 
 ---
 
+<<<<<<< Updated upstream
 ## CI: run tests in GitHub Actions release workflow
 
 The release workflow (`.github/workflows/release.yml`) does not currently run
@@ -141,6 +142,13 @@ GitHub Actions runners have Python pre-installed but not pytest. Add two steps:
 ```
 
 Place these after the checkout step and before the "Create release zip" step.
+=======
+## Add a favicon
+
+The browser always requests `/favicon.ico` and currently gets a 404. Add a
+simple favicon — a small antenna or radio wave icon would fit the theme — and
+serve it from the proxy so the 404 goes away.
+>>>>>>> Stashed changes
 
 ---
 
