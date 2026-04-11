@@ -958,12 +958,13 @@ function tuneSpot(evt, id, freqKhz, modeRaw, callsign, ref, park) {
       });
     setStatus('waiting', 'Sending to MacLoggerDX…');
 
-  } else if (rig === 'flrig' || rig === 'rigctld') {
-    // ── Proxy backends (flrig, rigctld, …) ──────────────
+  } else if (rig !== 'none') {
+    // ── Generic proxy backend (flrig, rigctld, log4om, …) ──
+    // Any backend that isn't 'mldx' or 'none' is a proxy backend.
     // Send freq in kHz; pota_proxy.py converts to Hz internally.
     // The backend name is embedded in the URL path so the proxy
     // log always shows which backend handled each request, and
-    // adding a new backend never changes the URL structure.
+    // adding a new backend never requires a change here.
     const url = `${PROXY_BASE}/tune/${rig}` +
                 `?freq=${encodeURIComponent(freqKhz)}` +
                 `&mode=${encodeURIComponent(modeDisp)}`;

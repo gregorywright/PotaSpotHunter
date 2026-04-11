@@ -110,6 +110,7 @@ import queue
 import socket
 import sys
 import threading
+import uuid
 import webbrowser
 import xmlrpc.client
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -228,6 +229,15 @@ class RigBackend:
         Default: no-op.
         """
         pass
+
+    def ping(self) -> str:
+        """
+        Check whether the backend's rig-control software is reachable.
+        Returns a version or status string on success; raises
+        ConnectionRefusedError or OSError if unreachable.
+        Default: returns "ok" — override for backends that can probe.
+        """
+        return "ok"
 
 
 # ════════════════════════════════════════════════════════════
@@ -987,6 +997,57 @@ class NoneBackend(RigBackend):
 
 
 # ════════════════════════════════════════════════════════════
+# BACKEND: log4om
+# ════════════════════════════════════════════════════════════
+
+class Log4OmBackend(RigBackend):
+    """
+    Rig control via Log4OM's UDP Remote Control Interface v1.1.
+
+    Sends XML datagrams to Log4OM on port 2241 (default).  Log4OM must
+    have Remote Control enabled in Settings → Interfaces → Remote Control.
+
+    Spec: https://www.log4om.com/l4ong/usermanual/RemoteControlInterface_1_1.pdf
+
+    Current milestone: frequency tuning only (SetTxFrequency).
+    Mode, callsign lookup, ping, and worked cache are planned in later milestones.
+    """
+
+    name = "log4om"
+    DEFAULT_PORT = 2241
+
+    def __init__(self, host: str = "127.0.0.1", port: int = DEFAULT_PORT):
+        self.host = host
+        self.port = port
+
+    def _udp_send(self, command: str, **fields) -> None:
+        """Build and send a RemoteControlRequest XML datagram to Log4OM."""
+        field_xml = "".join(f"  <{k}>{v}</{k}>\n" for k, v in fields.items())
+        xml = (
+            f"<RemoteControlRequest>\n"
+            f"  <MessageId>{uuid.uuid4()}</MessageId>\n"
+            f"  <RemoteControlMessage>{command}</RemoteControlMessage>\n"
+            f"{field_xml}"
+            f"</RemoteControlRequest>"
+        )
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+            sock.sendto(xml.encode("utf-8"), (self.host, self.port))
+        log.debug("log4om  → %s  %s", command, fields)
+
+    def ping(self) -> str:
+        """
+        Log4OM's UDP interface has no query/response — we cannot confirm
+        it is running via UDP alone.  Returns 'ok' as a stub until a
+        Windows process-list check is added in Milestone 4.
+        """
+        return "ok"
+
+    def tune(self, freq_hz: int, mode: str) -> None:
+        self._udp_send("SetTxFrequency", Frequency=freq_hz)
+        log.info("log4om  SetTxFrequency  %d Hz  (%.3f kHz)", freq_hz, freq_hz / 1000)
+
+
+# ════════════════════════════════════════════════════════════
 # BACKEND REGISTRY
 # ════════════════════════════════════════════════════════════
 #
@@ -1011,6 +1072,7 @@ def _build_backends(args):
         "mldx":    MacLoggerDXBackend(),
         "flrig":   FlrigBackend(host=args.rig_host, port=args.rig_port),
         "rigctld": RigctldBackend(host=args.rig_host, port=args.rigctld_port),
+        "log4om":  Log4OmBackend(host=args.rig_host, port=args.log4om_port),
         "none":    NoneBackend(),
     }
 
@@ -1415,8 +1477,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
                 })
                 return
             try:
-                # Only FlrigBackend has ping(); others get a simple ok:true
-                version = backend.ping() if hasattr(backend, "ping") else "n/a"
+                version = backend.ping()
                 resp = {"ok": True, "backend": backend_name, "version": version}
                 # For MLDX, include UDP broadcast pref status so the UI can warn
                 if backend_name == "mldx" and hasattr(backend, "check_udp_pref"):
@@ -1539,7 +1600,7 @@ def parse_args():
     p.add_argument(
         "--backend",
         default="mldx",
-        choices=["mldx", "flrig", "rigctld"],
+        choices=["mldx", "flrig", "rigctld", "log4om"],
         help="Default rig-control backend to use (default: mldx).",
     )
     p.add_argument(
@@ -1567,6 +1628,13 @@ def parse_args():
         default=4532,
         metavar="PORT",
         help="Port for rigctld (default: 4532).",
+    )
+    p.add_argument(
+        "--log4om-port",
+        type=int,
+        default=Log4OmBackend.DEFAULT_PORT,
+        metavar="PORT",
+        help="Port for Log4OM Remote Control Interface (default: 2241).",
     )
     p.add_argument(
         "--no-browser",
