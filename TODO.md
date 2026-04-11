@@ -233,13 +233,22 @@ class, and fix those so future backends stay self-contained.
 - Sends `SetCallsign` UDP XML after `SetTxFrequency`; only sent if callsign
   is non-empty; Log4OM auto-triggers QRZ lookup on receipt
 
-#### Milestone 4 — Ping / health check
-- Log4OM sends a UDP heartbeat every 5s on port 2242 when "Send 5 second
-  status messages" is enabled in Remote Control settings
-- Replace the stub `ping()` with a listener on port 2242 — declare backend
-  up if a heartbeat arrived within the last ~15s, down otherwise
-- No Windows process-list check needed (answers open question 3)
-- Enables the existing backend-down dialog to work for Log4OM disconnects
+#### Milestone 4 — Ping / health check ✅ DONE
+Two-tier approach so it works with default Log4OM install config:
+
+1. **Heartbeat (optional, fast):** listener on port 2242 receives Log4OM's
+   5-second UDP status message when "Send 5 seconds status messages" is
+   enabled. If a heartbeat has ever been received, use it exclusively —
+   stale > 15s raises ConnectionRefusedError.
+
+2. **Process list (default fallback):** if no heartbeat has ever arrived,
+   call `tasklist /FO CSV /NH` and check for `L4ONG` or `Log4OM` in output.
+   Works with zero Log4OM configuration. Log4OM's exe is `L4ONG.exe`
+   (confirmed in Task Manager); process title shows "Log4OM 2".
+   Both strings are checked for forward-compatibility.
+
+Users get backend-down detection out of the box. Enabling the heartbeat
+in Log4OM settings upgrades to faster/more reliable detection automatically.
 
 #### Milestone 5 — Real-time worked cache
 - Start a listener thread on port 12060 for Log4OM's N1MM-format
@@ -295,13 +304,19 @@ Settings on that page:
   Milestone 4** — listen on 2242 and declare the backend up if a heartbeat
   arrived within ~15s. No process-list check needed.
 
-README should tell users to:
-1. Open Configuration → Software integration → Connections → Remote Control
-2. Check **Enable remote control** (port 2241)
-3. Check **Enable data output through UDP**, then check
-   **Send 5 seconds status messages** (needed for backend health monitor)
+README should tell users:
 
-Without step 2, tune commands are silently dropped.
+**Required:**
+1. Open Configuration → Software integration → Connections → Remote Control
+2. Confirm **Enable remote control** is checked (it is by default), port 2241
+3. Without this, tune/callsign commands are silently dropped (UDP, no feedback)
+
+**Optional (improves backend health detection):**
+4. On the same page, check **Enable data output through UDP**
+5. Check **Send 5 seconds status messages**
+6. With this enabled, POTA Spot Hunter can detect when Log4OM closes and
+   show the reconnect dialog faster. Without it, a process-list check is
+   used instead — still works, just slightly slower to detect a crash.
 
 ### MacLoggerDX
 MLDX's UDP Broadcast must be enabled for the worked-callsign indicator to work:

@@ -108,8 +108,10 @@ import logging
 import pathlib
 import queue
 import socket
+import subprocess
 import sys
 import threading
+import time
 import uuid
 import webbrowser
 import xmlrpc.client
@@ -1009,20 +1011,65 @@ class Log4OmBackend(RigBackend):
       Configuration → Software integration → Connections → Remote Control
       Check "Enable remote control", port 2241.
 
-    Spec: https://www.log4om.com/l4ong/usermanual/RemoteControlInterface_1_1.pdf
+    Ping uses Log4OM's optional 5-second heartbeat on port 2242.  Enable it:
+      Same settings page → "Enable data output through UDP" →
+      "Send 5 seconds status messages".
+    Without the heartbeat, ping() always returns "ok" (no false positives).
 
-    Mode strings are passed as-is from the POTA API (CW, USB, LSB, FT8, FT4,
-    etc.) — Log4OM understands ADIF mode strings natively.  SetMode is sent
-    as a separate datagram after SetTxFrequency so a broken SetMode (reported
-    in older builds) does not affect frequency tuning.
+    Spec: https://www.log4om.com/l4ong/usermanual/RemoteControlInterface_1_1.pdf
     """
 
-    name = "log4om"
-    DEFAULT_PORT = 2241
+    name                 = "log4om"
+    DEFAULT_PORT         = 2241
+    DEFAULT_HEARTBEAT_PORT = 2242
+    HEARTBEAT_TIMEOUT    = 15   # seconds — 3 missed 5s heartbeats
 
-    def __init__(self, host: str = "127.0.0.1", port: int = DEFAULT_PORT):
-        self.host = host
-        self.port = port
+    def __init__(self, host: str = "127.0.0.1", port: int = DEFAULT_PORT,
+                 heartbeat_port: int = DEFAULT_HEARTBEAT_PORT):
+        self.host           = host
+        self.port           = port
+        self.heartbeat_port = heartbeat_port
+
+        self._last_heartbeat          = 0.0
+        self._ever_received_heartbeat = False
+        self._stop_heartbeat          = False
+
+        t = threading.Thread(target=self._heartbeat_listener,
+                             daemon=True, name="log4om-heartbeat")
+        t.start()
+
+    def _heartbeat_listener(self) -> None:
+        """
+        Bind a UDP socket on heartbeat_port and update _last_heartbeat
+        whenever Log4OM sends its 5-second status message.  Runs as a
+        daemon thread — no explicit stop needed on shutdown.
+        """
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            sock.bind(("", self.heartbeat_port))
+            sock.settimeout(1.0)
+        except OSError as e:
+            log.warning(
+                "log4om  heartbeat listener could not bind port %d: %s "
+                "(ping will always return ok)",
+                self.heartbeat_port, e,
+            )
+            return
+        log.debug("log4om  heartbeat listener ready on port %d", self.heartbeat_port)
+        while not self._stop_heartbeat:
+            try:
+                sock.recvfrom(4096)
+                self._last_heartbeat = time.monotonic()
+                if not self._ever_received_heartbeat:
+                    self._ever_received_heartbeat = True
+                    log.info("log4om  heartbeat established on port %d",
+                             self.heartbeat_port)
+                log.debug("log4om  heartbeat received")
+            except socket.timeout:
+                continue
+            except OSError:
+                break
+        sock.close()
 
     def _udp_send(self, command: str, **fields) -> None:
         """Build and send a RemoteControlRequest XML datagram to Log4OM."""
@@ -1040,10 +1087,42 @@ class Log4OmBackend(RigBackend):
 
     def ping(self) -> str:
         """
-        Log4OM's UDP interface has no query/response — we cannot confirm
-        it is running via UDP alone.  Returns 'ok' as a stub until a
-        Windows process-list check is added in Milestone 4.
+        Return "ok" if Log4OM appears to be running, or raise
+        ConnectionRefusedError if it is not.
+
+        Two-tier detection:
+        1. Heartbeat (fast): if Log4OM's "Send 5 seconds status messages"
+           is enabled, use the UDP heartbeat on port 2242.  A gap of more
+           than HEARTBEAT_TIMEOUT seconds means Log4OM has gone away.
+        2. Process list (fallback): if no heartbeat has ever arrived, check
+           the Windows process list for L4ONG.exe / Log4OM.  Works with the
+           default Log4OM install — no extra configuration required.
         """
+        if self._ever_received_heartbeat:
+            elapsed = time.monotonic() - self._last_heartbeat
+            if elapsed > self.HEARTBEAT_TIMEOUT:
+                raise ConnectionRefusedError(
+                    f"Log4OM heartbeat not received for {elapsed:.0f}s "
+                    f"— is Log4OM running?"
+                )
+            return "ok"
+
+        # Fallback: check Windows process list.
+        # Log4OM's executable is L4ONG.exe; also check for Log4OM in case
+        # a future version changes the name.
+        try:
+            result = subprocess.run(
+                ["tasklist", "/FO", "CSV", "/NH"],
+                capture_output=True, text=True, timeout=5,
+            )
+            if "L4ONG" not in result.stdout and "Log4OM" not in result.stdout:
+                raise ConnectionRefusedError(
+                    "Log4OM (L4ONG.exe) not found in process list "
+                    "— is Log4OM running?"
+                )
+        except FileNotFoundError:
+            # tasklist not available (non-Windows) — assume ok
+            pass
         return "ok"
 
     def tune(self, freq_hz: int, mode: str, callsign: str = "") -> None:
@@ -1084,7 +1163,8 @@ def _build_backends(args):
         "mldx":    MacLoggerDXBackend(),
         "flrig":   FlrigBackend(host=args.rig_host, port=args.rig_port),
         "rigctld": RigctldBackend(host=args.rig_host, port=args.rigctld_port),
-        "log4om":  Log4OmBackend(host=args.rig_host, port=args.log4om_port),
+        "log4om":  Log4OmBackend(host=args.rig_host, port=args.log4om_port,
+                                   heartbeat_port=args.log4om_heartbeat_port),
         "none":    NoneBackend(),
     }
 
@@ -1647,6 +1727,13 @@ def parse_args():
         default=Log4OmBackend.DEFAULT_PORT,
         metavar="PORT",
         help="Port for Log4OM Remote Control Interface (default: 2241).",
+    )
+    p.add_argument(
+        "--log4om-heartbeat-port",
+        type=int,
+        default=Log4OmBackend.DEFAULT_HEARTBEAT_PORT,
+        metavar="PORT",
+        help="Port for Log4OM 5-second status heartbeat (default: 2242).",
     )
     p.add_argument(
         "--no-browser",

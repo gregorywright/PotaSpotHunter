@@ -1,7 +1,7 @@
 # tests/test_proxy_backends.py
 # Unit tests for PotaProxy backends — no radio software required.
 # Run with: python3 build.py test
-import sys, os, pytest
+import sys, os, time, pytest
 from unittest.mock import patch, MagicMock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
@@ -147,3 +147,63 @@ def test_log4om_set_mode_not_sent():
     # SetMode is broken in Log4OM — verify we never send it
     sent = _log4om_tune_capture(mode='FT8')
     assert not any('SetMode' in s for s in sent)
+
+
+# ── Log4OM: ping / heartbeat ──────────────────────────────────────────────────
+
+def _make_log4om_backend():
+    """Return a Log4OmBackend with the heartbeat listener thread suppressed."""
+    with patch('threading.Thread'):
+        backend = Log4OmBackend(heartbeat_port=0)
+    return backend
+
+
+def test_log4om_ping_ok_when_no_heartbeat_ever():
+    # No heartbeat received yet → conservative ok (user may not have it enabled)
+    backend = _make_log4om_backend()
+    assert backend.ping() == "ok"
+
+
+def test_log4om_ping_ok_when_heartbeat_recent():
+    backend = _make_log4om_backend()
+    backend._ever_received_heartbeat = True
+    backend._last_heartbeat = time.monotonic()
+    assert backend.ping() == "ok"
+
+
+def test_log4om_ping_raises_when_heartbeat_stale():
+    backend = _make_log4om_backend()
+    backend._ever_received_heartbeat = True
+    backend._last_heartbeat = time.monotonic() - 20  # 20s ago — past 15s timeout
+    with pytest.raises(ConnectionRefusedError):
+        backend.ping()
+
+
+def test_log4om_ping_ok_via_tasklist_when_running():
+    backend = _make_log4om_backend()
+    with patch('subprocess.run') as mock_run:
+        mock_run.return_value = MagicMock(stdout='"L4ONG.exe","1234","Console","1","10,000 K"')
+        assert backend.ping() == "ok"
+
+
+def test_log4om_ping_raises_via_tasklist_when_not_running():
+    backend = _make_log4om_backend()
+    with patch('subprocess.run') as mock_run:
+        mock_run.return_value = MagicMock(stdout='')
+        with pytest.raises(ConnectionRefusedError):
+            backend.ping()
+
+
+def test_log4om_ping_ok_via_tasklist_future_name():
+    # Forward-compat: if exe is renamed to Log4OM.exe in a future version
+    backend = _make_log4om_backend()
+    with patch('subprocess.run') as mock_run:
+        mock_run.return_value = MagicMock(stdout='"Log4OM.exe","5678","Console","1","10,000 K"')
+        assert backend.ping() == "ok"
+
+
+def test_log4om_ping_ok_when_tasklist_unavailable():
+    # Non-Windows: tasklist not found — assume ok rather than false positive
+    backend = _make_log4om_backend()
+    with patch('subprocess.run', side_effect=FileNotFoundError):
+        assert backend.ping() == "ok"
