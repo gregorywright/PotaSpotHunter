@@ -111,7 +111,7 @@ class Log4OmBackend(RigBackend):
         # Stop listener thread
 ```
 
-### Open questions before implementation
+### Open questions
 
 1. Is `SetMode` fixed in recent Log4OM builds? Check forum thread t=9984.
 2. Is there a `SetNote`, `SetComment`, or `SetRemarks` command in the v1.1 spec
@@ -121,6 +121,45 @@ class Log4OmBackend(RigBackend):
    is the active backend (vs. full history with MLDX)?
 5. Does Log4OM require explicit user configuration (enable Remote Control, set
    port 2241) before our integration works? If so, the UI should show a setup guide.
+
+### Implementation milestones
+
+Each milestone is independently testable. Architecture note for each: identify
+any places where adding a new backend would require changes beyond writing the
+class, and fix those so future backends stay self-contained.
+
+#### Milestone 1 — Frequency tuning (basic smoke test) ✅ DONE
+- `Log4OmBackend` class in `PotaProxy.py`: `tune()` sends `SetTxFrequency`
+  UDP XML to port 2241; `ping()` stubs to `"ok"` (no query interface yet)
+- Register in `_build_backends()`; add `--log4om-port` CLI arg
+- Add "Log4OM" option to `#rig-select` dropdown in `www/index.html`
+- Architecture fix: add `ping()` to `RigBackend` base class with a default
+  `"ok"` return so all backends are consistent; fix stale comment in the
+  `/ping/` HTTP route handler
+
+**Verify:** Select Log4OM in dropdown, click a spot row, confirm Log4OM tunes.
+
+#### Milestone 2 — Mode setting
+- Add `SetMode` to the `tune()` sequence after `SetTxFrequency`
+- Empirically test against current Log4OM — if still broken, remove and
+  document as a known gap (answers open question 1)
+
+#### Milestone 3 — Callsign lookup
+- Add `SetCallsign` to the `tune()` sequence; Log4OM auto-triggers QRZ lookup
+- Update `tune()` signature to accept `callsign=""` kwarg (same pattern as MLDX)
+
+#### Milestone 4 — Ping / health check
+- Replace the stub `ping()` with a real check: query the Windows process list
+  via `tasklist` subprocess (answers open question 3)
+- Enables the existing backend-down dialog to work for Log4OM disconnects
+
+#### Milestone 5 — Real-time worked cache
+- Start a listener thread on port 12060 for Log4OM's N1MM-format
+  `<contactinfo>` UDP broadcasts
+- Parse `call`, `band`, `rxfreq`/`txfreq` (÷10 for Hz), `mode`, `timestamp`
+- Feed into the existing `worked_cache` so `×N` badges and colored dots appear
+- Session-only (no historical data); consider a UI hint when Log4OM is active
+  (answers open question 4)
 
 ---
 
@@ -141,6 +180,27 @@ GitHub Actions runners have Python pre-installed but not pytest. Add two steps:
 ```
 
 Place these after the checkout step and before the "Create release zip" step.
+
+---
+
+## Document required backend setup steps in README
+
+Users won't know to enable these settings before the integrations work.
+Add a "Setup" or "Before you start" note to each backend's section in README.md:
+
+### Log4OM
+Log4OM's Remote Control Interface must be enabled before the integration works:
+- Settings → Interfaces → Remote Control → enable, port 2241
+- Without this, tune commands are silently dropped (UDP — no error feedback)
+- Add this as a prerequisite note in the Log4OM section of README.md and in
+  the Quick Start guide
+
+### MacLoggerDX
+MLDX's UDP Broadcast must be enabled for the worked-callsign indicator to work:
+- Preferences → Networking → UDP Broadcast → enable, port 9932
+- Without this, the `×N` worked badges won't update in real time (the
+  historical AppleScript batch query still works, but live updates won't fire)
+- Add this as a note in the MacLoggerDX section of README.md
 
 ---
 
