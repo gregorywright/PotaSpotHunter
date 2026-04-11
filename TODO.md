@@ -149,8 +149,11 @@ class, and fix those so future backends stay self-contained.
 - Update `tune()` signature to accept `callsign=""` kwarg (same pattern as MLDX)
 
 #### Milestone 4 — Ping / health check
-- Replace the stub `ping()` with a real check: query the Windows process list
-  via `tasklist` subprocess (answers open question 3)
+- Log4OM sends a UDP heartbeat every 5s on port 2242 when "Send 5 second
+  status messages" is enabled in Remote Control settings
+- Replace the stub `ping()` with a listener on port 2242 — declare backend
+  up if a heartbeat arrived within the last ~15s, down otherwise
+- No Windows process-list check needed (answers open question 3)
 - Enables the existing backend-down dialog to work for Log4OM disconnects
 
 #### Milestone 5 — Real-time worked cache
@@ -189,11 +192,31 @@ Users won't know to enable these settings before the integrations work.
 Add a "Setup" or "Before you start" note to each backend's section in README.md:
 
 ### Log4OM
-Log4OM's Remote Control Interface must be enabled before the integration works:
-- Settings → Interfaces → Remote Control → enable, port 2241
-- Without this, tune commands are silently dropped (UDP — no error feedback)
-- Add this as a prerequisite note in the Log4OM section of README.md and in
-  the Quick Start guide
+Log4OM's Remote Control Interface must be enabled before the integration works.
+
+Exact path (verified on v2.40.0.0):
+Open Configuration, then in the left-hand tree:
+**Software integration → Connections → Remote Control** (tab button at top)
+
+Settings on that page:
+- **Remote control port** — inbound commands, default 2241 (our tune target)
+- **Enable remote control** checkbox — **must be checked** or all commands
+  are silently ignored (UDP has no error feedback)
+- **Enable data output through UDP** checkbox
+  - **Remote control output port** — outbound, default 2242
+  - Send to specific IP/port (127.0.0.1 default) or Broadcast
+- **Send 5 seconds status messages** checkbox — Log4OM broadcasts a heartbeat
+  every 5s on port 2242 when enabled. **This is the ping mechanism for
+  Milestone 4** — listen on 2242 and declare the backend up if a heartbeat
+  arrived within ~15s. No process-list check needed.
+
+README should tell users to:
+1. Open Configuration → Software integration → Connections → Remote Control
+2. Check **Enable remote control** (port 2241)
+3. Check **Enable data output through UDP**, then check
+   **Send 5 seconds status messages** (needed for backend health monitor)
+
+Without step 2, tune commands are silently dropped.
 
 ### MacLoggerDX
 MLDX's UDP Broadcast must be enabled for the worked-callsign indicator to work:
