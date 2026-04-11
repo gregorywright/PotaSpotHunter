@@ -5,7 +5,7 @@ import sys, os, pytest
 from unittest.mock import patch, MagicMock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-from PotaProxy import MacLoggerDXBackend, RigctldBackend
+from PotaProxy import MacLoggerDXBackend, RigctldBackend, Log4OmBackend
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -94,3 +94,56 @@ def test_ft8_mapped_to_pktusb():
 
 def test_cw_passed_through():
     assert any(c.startswith('M CW') for c in _rigctld_tune_capture(mode='CW'))
+
+
+# ── Log4OM: UDP XML datagrams ─────────────────────────────────────────────────
+
+def _log4om_tune_capture(freq_hz=14074000, mode='FT8', callsign=''):
+    """Run Log4OmBackend.tune() with mocked socket; return list of decoded XML strings sent."""
+    backend = Log4OmBackend()
+    sent = []
+    mock_sock = MagicMock()
+    mock_sock.__enter__ = lambda s: s
+    mock_sock.__exit__ = MagicMock(return_value=False)
+    mock_sock.sendto.side_effect = lambda data, addr: sent.append(data.decode('utf-8'))
+    with patch('socket.socket', return_value=mock_sock):
+        backend.tune(freq_hz, mode, callsign=callsign)
+    return sent
+
+
+def test_log4om_set_tx_frequency_sent():
+    sent = _log4om_tune_capture(freq_hz=14074000)
+    assert any('SetTxFrequency' in s for s in sent)
+
+
+def test_log4om_frequency_value_correct():
+    sent = _log4om_tune_capture(freq_hz=14074000)
+    freq_msg = next(s for s in sent if 'SetTxFrequency' in s)
+    assert '<Frequency>14074000</Frequency>' in freq_msg
+
+
+def test_log4om_xml_has_message_id():
+    sent = _log4om_tune_capture()
+    assert all('<MessageId>' in s for s in sent)
+
+
+def test_log4om_callsign_sent_when_provided():
+    sent = _log4om_tune_capture(callsign='W1AW')
+    assert any('SetCallsign' in s for s in sent)
+
+
+def test_log4om_callsign_value_correct():
+    sent = _log4om_tune_capture(callsign='W1AW')
+    call_msg = next(s for s in sent if 'SetCallsign' in s)
+    assert '<Callsign>W1AW</Callsign>' in call_msg
+
+
+def test_log4om_callsign_not_sent_when_empty():
+    sent = _log4om_tune_capture(callsign='')
+    assert not any('SetCallsign' in s for s in sent)
+
+
+def test_log4om_set_mode_not_sent():
+    # SetMode is broken in Log4OM — verify we never send it
+    sent = _log4om_tune_capture(mode='FT8')
+    assert not any('SetMode' in s for s in sent)

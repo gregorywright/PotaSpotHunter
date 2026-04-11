@@ -1005,12 +1005,16 @@ class Log4OmBackend(RigBackend):
     Rig control via Log4OM's UDP Remote Control Interface v1.1.
 
     Sends XML datagrams to Log4OM on port 2241 (default).  Log4OM must
-    have Remote Control enabled in Settings → Interfaces → Remote Control.
+    have Remote Control enabled:
+      Configuration → Software integration → Connections → Remote Control
+      Check "Enable remote control", port 2241.
 
     Spec: https://www.log4om.com/l4ong/usermanual/RemoteControlInterface_1_1.pdf
 
-    Current milestone: frequency tuning only (SetTxFrequency).
-    Mode, callsign lookup, ping, and worked cache are planned in later milestones.
+    Mode strings are passed as-is from the POTA API (CW, USB, LSB, FT8, FT4,
+    etc.) — Log4OM understands ADIF mode strings natively.  SetMode is sent
+    as a separate datagram after SetTxFrequency so a broken SetMode (reported
+    in older builds) does not affect frequency tuning.
     """
 
     name = "log4om"
@@ -1042,9 +1046,17 @@ class Log4OmBackend(RigBackend):
         """
         return "ok"
 
-    def tune(self, freq_hz: int, mode: str) -> None:
+    def tune(self, freq_hz: int, mode: str, callsign: str = "") -> None:
         self._udp_send("SetTxFrequency", Frequency=freq_hz)
         log.info("log4om  SetTxFrequency  %d Hz  (%.3f kHz)", freq_hz, freq_hz / 1000)
+        # SetMode is not sent — confirmed non-functional in Log4OM 2.40.0.0
+        # (also reported broken as of Oct 2025 in forum thread t=9984).
+        # UDP gives no error feedback so there is no way to detect or work
+        # around this. Mode setting is a known gap for the Log4OM backend.
+        log.debug("log4om  SetMode skipped (known broken in Log4OM)")
+        if callsign:
+            self._udp_send("SetCallsign", Callsign=callsign)
+            log.info("log4om  SetCallsign      %s", callsign)
 
 
 # ════════════════════════════════════════════════════════════

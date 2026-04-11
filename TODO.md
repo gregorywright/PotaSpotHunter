@@ -10,6 +10,84 @@ which complements MacLoggerDX (macOS-only) and expands coverage to the larger
 Windows ham radio audience. Goal: best-possible feature parity with the MLDX
 backend within the constraints of what Log4OM's API exposes.
 
+### Log4OM CAT interface landscape
+
+Log4OM supports three CAT engines (Hardware Configuration → CAT interface):
+
+#### OmniRig (most popular — default installer option)
+- Windows COM server; bundled in the Log4OM installer
+- Designed from the ground up for multiple simultaneous clients (DX Atlas,
+  CW Skimmer, Log4OM, others all share a single COM port connection)
+- Better Icom radio support than Hamlib in user reports
+- To connect from Python: requires `pywin32` (COM automation) — a third-party
+  dependency we have avoided so far
+- OmniRig v2 may have a TCP/network server mode; worth investigating as a
+  way to avoid the pywin32 dependency
+- **This is what most Log4OM users will have** — critical for mode setting
+
+#### Hamlib / rigctld
+- Log4OM can either spawn its own internal rigctld OR connect to an existing
+  external instance ("Connect to active HAMLIB instance" checkbox, port 4532)
+- Forum warns: *"no other CAT software should be active or they will conflict"*
+  — sharing rigctld between Log4OM and POTA Spot Hunter is therefore risky
+- Our existing `RigctldBackend` already speaks the rigctld protocol perfectly
+- Less popular than OmniRig among Log4OM users; more configuration complexity
+
+#### TCI (Transceiver Control Interface)
+- WebSocket-based protocol (`ws://localhost:40001` by default; 50001 stock)
+- Command syntax: `command:parameters;` e.g. `vfo:0,0,14074000;` and
+  `modulation:0,USB;`
+- Designed for ExpertSDR / SunSDR hardware; also supported by some other SDRs
+- Multiple simultaneous clients supported
+- Python needs a WebSocket library (`websockets` or similar) — third-party dep
+- Less common in the general Log4OM user base; niche SDR hardware audience
+
+#### OmniRig — interface details (research complete)
+- OmniRig is **COM-only** — confirmed by reading the type library source
+  (github.com/VE3NEA/OmniRig). There is no built-in TCP or network interface.
+- OmniRig v2 does NOT add a network interface — it replaces the exe but still
+  registers as a COM object in the same way.
+- To connect from Python: `pywin32` (`win32com.client`) is the standard path.
+  The `omnipyrig` library (github.com/4Z1KD/omnipyrig) is a ready-made wrapper.
+- `pywin32` v300+ (Oct 2020) installs cleanly via pip with no admin rights and
+  no manual post-install step — covers Python 3.9+ (our new minimum).
+- If pywin32 is missing, the right UX is a clear error in the status bar:
+  *"OmniRig mode control requires pywin32 — run: pip install pywin32, then
+  restart the proxy."* Do NOT auto-install silently; do NOT pop a dialog
+  (not standard Python practice and requires a proxy restart anyway).
+
+#### Mode setting gap — root cause and decision
+Log4OM's UDP Remote Control `SetMode` is confirmed broken in v2.40.0.0
+(tested Apr 2026; also reported broken Oct 2025 in forum thread t=9984).
+
+Full option analysis:
+
+| Approach | Mode works? | Dependencies | User disruption |
+|---|---|---|---|
+| Log4OM UDP `SetMode` | ❌ broken | none | none |
+| OmniRig COM via `pywin32` | ✅ | `pywin32` (optional) | none — already running |
+| OmniRig v2 TCP | ❌ no TCP interface | — | — |
+| rigctld shared with Log4OM | ✅ | none | must switch CAT engine; conflict risk |
+| TCI WebSocket | ✅ | `websockets` dep | niche SDR hardware only |
+
+**Decision: punt on mode setting for now.** Rationale:
+- Mode setting is the *only* reason to talk to OmniRig directly right now
+- Adding pywin32 + a hybrid two-channel tune() (OmniRig for mode, UDP for
+  everything else) is real complexity for one feature
+- Milestones 3–5 (callsign lookup, ping, worked cache) deliver more user value
+  with zero new dependencies
+- If Log4OM fixes `SetMode` in a future release, we get it for free
+- Revisit after Milestones 3–5 ship, or if users specifically request it
+
+**Future OmniRig mode setting implementation path (when we revisit):**
+1. Add optional `pywin32` import in `Log4OmBackend.__init__()` — catch
+   `ImportError` and set `self._omnirig = None`
+2. If available, connect to OmniRig COM object and call `Rig1.Mode = PM_CW_U`
+   etc. after the `SetTxFrequency` UDP send
+3. Map POTA mode strings → OmniRig `PM_*` enum values
+4. If pywin32 not installed, log a one-time info message with install instructions
+   and continue (frequency still tunes correctly)
+
 ### Research complete — API summary
 
 Log4OM communicates via **UDP only** (no AppleScript, no XML-RPC, no REST).
@@ -113,14 +191,18 @@ class Log4OmBackend(RigBackend):
 
 ### Open questions
 
-1. Is `SetMode` fixed in recent Log4OM builds? Check forum thread t=9984.
+1. ~~Is `SetMode` fixed in recent Log4OM builds?~~ **Answered:** Still broken in
+   v2.40.0.0 (Apr 2026). OmniRig COM path deferred — see mode setting section.
 2. Is there a `SetNote`, `SetComment`, or `SetRemarks` command in the v1.1 spec
    PDF that didn't show up in forum discussions?
-3. Best ping/health-check approach on Windows — UDP probe vs. process list?
+3. ~~Best ping/health-check approach?~~ **Answered:** Listen on port 2242 for
+   the 5-second heartbeat Log4OM sends when "Send 5 seconds status messages"
+   is enabled. Declare backend up if heartbeat arrived within ~15s.
 4. Should the UI indicate that worked history is "this session only" when Log4OM
    is the active backend (vs. full history with MLDX)?
-5. Does Log4OM require explicit user configuration (enable Remote Control, set
-   port 2241) before our integration works? If so, the UI should show a setup guide.
+5. ~~Does Log4OM require explicit user configuration?~~ **Answered:** Yes —
+   Configuration → Software integration → Connections → Remote Control →
+   check "Enable remote control" (port 2241). Documented in TODO setup section.
 
 ### Implementation milestones
 
@@ -139,14 +221,17 @@ class, and fix those so future backends stay self-contained.
 
 **Verify:** Select Log4OM in dropdown, click a spot row, confirm Log4OM tunes.
 
-#### Milestone 2 — Mode setting
-- Add `SetMode` to the `tune()` sequence after `SetTxFrequency`
-- Empirically test against current Log4OM — if still broken, remove and
-  document as a known gap (answers open question 1)
+#### Milestone 2 — Mode setting ✅ DONE (punted — broken in Log4OM)
+- `SetMode` confirmed broken in Log4OM v2.40.0.0 — not sent
+- A comment in `tune()` documents the gap and links to the forum thread
+- OmniRig COM via `pywin32` is the future path; deferred until after M3–M5
+- See "Mode setting gap" section above for full analysis and future approach
 
-#### Milestone 3 — Callsign lookup
-- Add `SetCallsign` to the `tune()` sequence; Log4OM auto-triggers QRZ lookup
-- Update `tune()` signature to accept `callsign=""` kwarg (same pattern as MLDX)
+#### Milestone 3 — Callsign lookup ✅ DONE
+- Added `callsign=""` kwarg to `tune()` — proxy's `inspect.signature` mechanism
+  passes it through automatically from the query string
+- Sends `SetCallsign` UDP XML after `SetTxFrequency`; only sent if callsign
+  is non-empty; Log4OM auto-triggers QRZ lookup on receipt
 
 #### Milestone 4 — Ping / health check
 - Log4OM sends a UDP heartbeat every 5s on port 2242 when "Send 5 second
@@ -232,6 +317,20 @@ MLDX's UDP Broadcast must be enabled for the worked-callsign indicator to work:
 The browser always requests `/favicon.ico` and currently gets a 404. Add a
 simple favicon — a small antenna or radio wave icon would fit the theme — and
 serve it from the proxy so the 404 goes away.
+
+---
+
+## Update minimum required Python version to 3.9+
+
+Currently documented as Python 3.7+ (released June 2018, EOL June 2023).
+Raise the minimum to **Python 3.9+** (released October 2020, still supported).
+
+Reason: pywin32 v300+ (required for OmniRig COM access on Windows) guarantees
+clean pip installation with no admin rights and no manual post-install step
+from Python 3.9 onward. Python 3.7/3.8 are end-of-life and should not be
+targeted for new dependencies.
+
+Files to update: `README.md` requirements table, any other version references.
 
 ---
 

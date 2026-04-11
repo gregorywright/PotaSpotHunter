@@ -967,7 +967,8 @@ function tuneSpot(evt, id, freqKhz, modeRaw, callsign, ref, park) {
     // adding a new backend never requires a change here.
     const url = `${PROXY_BASE}/tune/${rig}` +
                 `?freq=${encodeURIComponent(freqKhz)}` +
-                `&mode=${encodeURIComponent(modeDisp)}`;
+                `&mode=${encodeURIComponent(modeDisp)}` +
+                `&callsign=${encodeURIComponent(callsign)}`;
 
     fetch(url)
       .then(r => r.json())
