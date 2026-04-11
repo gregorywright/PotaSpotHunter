@@ -78,7 +78,7 @@ The app is split into two files that work together:
 The browser cannot talk directly to MacLoggerDX, flrig, or rigctld because of the browser's same-origin security policy. The proxy runs locally on your machine, accepts simple HTTP requests from the web page, and forwards commands to whichever rig-control backend you have configured.
 
 ```
-Browser (PotaSpotHunter.html)
+Browser (www/index.html — served by proxy)
         │
         │  HTTP  GET /tune/mldx?freq=14074&mode=FT8&callsign=W1AW&note=POTA+US-1234
         ▼
@@ -243,7 +243,7 @@ The proxy is designed to be extended. To add a new backend (e.g. OmniRig, DX Lab
 2. Implement `tune(freq_hz, mode)` — receives frequency in Hz and a mode string
 3. Optionally implement `ping()` for connection health checks
 4. Register it in the `_build_backends()` function
-5. Add it to the `rig-select` dropdown in `PotaSpotHunter.html`
+5. Add it to the `rig-select` dropdown in `www/index.html`
 
 See the `FlrigBackend` and `RigctldBackend` classes for worked examples.
 

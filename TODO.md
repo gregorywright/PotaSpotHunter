@@ -124,6 +124,26 @@ class Log4OmBackend(RigBackend):
 
 ---
 
+## CI: run tests in GitHub Actions release workflow
+
+The release workflow (`.github/workflows/release.yml`) does not currently run
+the test suite. Add a test step before the zip is built so a failing test
+aborts the release early.
+
+GitHub Actions runners have Python pre-installed but not pytest. Add two steps:
+
+```yaml
+- name: Install test dependencies
+  run: pip install pytest
+
+- name: Run tests
+  run: python3 build.py test
+```
+
+Place these after the checkout step and before the "Create release zip" step.
+
+---
+
 ## SSE event types (future)
 
 The SSE broker is designed to carry additional event types beyond `worked_update`.

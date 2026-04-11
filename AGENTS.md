@@ -43,7 +43,6 @@ ham radio with one click.
 | `www/index.html` | HTML shell — served by proxy at `http://localhost:{port}/` |
 | `www/style.css` | All CSS styles |
 | `www/app.js` | All JavaScript |
-| `PotaSpotHunter.html` | Legacy single-file version — kept for reference/fallback |
 | `PotaProxy.py` | Local Python HTTP proxy on localhost:8080 |
 | `VERSION` | Single source of truth for version number (e.g. `1.7.0`, no `v` prefix) |
 | `CHANGELOG.md` | Version history in keep-a-changelog style |
@@ -62,7 +61,7 @@ ham radio with one click.
 ## Architecture
 
 ```
-Browser (PotaSpotHunter.html)
+Browser (www/index.html — served by proxy)
         │
         │  HTTP GET /tune/mldx?freq=14074&mode=FT8&callsign=W1AW&note=POTA+US-1234
         ▼
@@ -170,7 +169,7 @@ are valid ASCII and appear in legitimate AppleScript syntax). Do NOT move
 the sanitization back into individual callers — it belongs at the boundary.
 
 ### Park type classification — two functions, not one
-`PotaSpotHunter.html` is served by the proxy at `http://localhost:8080/`
+`www/index.html` is served by the proxy at `http://localhost:8080/`
 rather than opened as a `file://` URL. This gives the page a real HTTP
 origin, which the browser sends as the `Referer` header on tile requests
 to OpenStreetMap — required by OSM's tile usage policy to avoid 403r errors.
@@ -352,6 +351,17 @@ Dwell options: Off, 5s, 10s, 30s, 1m. (1s was removed — too fast.)
 
 ## Release process
 
+### Before releasing — run the tests
+
+The GitHub Actions workflow does **not** run the test suite. Always run tests
+locally before tagging a release:
+
+```bash
+python3 build.py test
+```
+
+All tests must pass before proceeding. If any fail, fix them first.
+
 ### Files to update before tagging
 - `VERSION` — bump this (bare number, no `v`, e.g. `1.4.0`)
 - `CHANGELOG.md` — rename `[Unreleased]` to `## [X.Y.Z] - YYYY-MM-DD`, add new empty `[Unreleased]` at top
@@ -375,8 +385,8 @@ git push origin mainline --tags
 2. Extracts the matching `## [X.Y.Z]` section from `CHANGELOG.md` as release notes,
    prepending a Quick Start section automatically
 3. Creates `PotaSpotHunter-vX.Y.Z.zip` containing:
-   `PotaSpotHunter.html`, `PotaProxy.py`, `VERSION`, `README.md`,
-   `CHANGELOG.md`, `LICENSE`, `requirements.txt`
+   `www/`, `themes/`, `PotaProxy.py`, `VERSION`, `README.md`,
+   `CHANGELOG.md`, `THEMES.md`, `LICENSE`, `requirements.txt`
    (Note: `AGENTS.md`, `build.py`, `tests/`, `requirements-dev.txt`,
    and `CONTRIBUTING.md` are intentionally excluded from the release zip)
 4. Creates a **draft** GitHub release with the zip attached
@@ -385,7 +395,7 @@ git push origin mainline --tags
 - Go to https://github.com/gregorywright/PotaSpotHunter/releases
 - Click the pencil/edit icon on the draft
 - Review title, notes, and zip attachment
-- **Verify the ZIP contains `www/` directory** (not `PotaSpotHunter.html` — this changed in v1.8.0)
+- **Verify the ZIP contains `www/` directory and `themes/` directory**
 - Click **Publish release** at the bottom
 
 ### Monitoring the workflow
@@ -421,7 +431,6 @@ git push origin mainline --tags
 
 - The app is split into `www/index.html`, `www/style.css`, and `www/app.js`.
   Edit files in `www/` and reload the browser — no build step needed.
-  `PotaSpotHunter.html` is kept as a legacy reference/fallback.
 - `PotaProxy.py` requires Python 3.7+ and no third-party packages.
 - The HTML file is ~2500 lines. Always read the relevant section before
   editing — don't rely on memory of exact whitespace.

@@ -4,7 +4,7 @@ build.py — developer utility for PotaSpotHunter
 
 Usage:
   python3 build.py test    — run the test suite
-  python3 build.py         — (future) build PotaSpotHunter.html from src/
+  python3 build.py         — run with no args to see this help
 """
 import sys
 import subprocess

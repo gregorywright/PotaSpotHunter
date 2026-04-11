@@ -127,7 +127,7 @@ log = logging.getLogger("pota_proxy")
 # ── Version ──────────────────────────────────────────────────────────────
 # Read from the VERSION file in the same directory as this script.
 # Falls back to "unknown" if the file is missing so the proxy still starts.
-# The version is exposed via the /version HTTP route so PotaSpotHunter.html
+# The version is exposed via the /version HTTP route so www/index.html
 # can display it in the header without hardcoding it in two places.
 _version_file = pathlib.Path(__file__).parent / "VERSION"
 try:
@@ -1187,7 +1187,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
     GET /version
         Return the app version string read from the VERSION file.
         Returns JSON: {"version": "1.2.0"}
-        Used by PotaSpotHunter.html to display the version in the header
+        Used by www/index.html to display the version in the header
         without hardcoding it in two places.
 
     All responses include CORS headers so the browser does not block them
