@@ -199,11 +199,11 @@ PSH can read config.json at startup/backend-switch to check:
 
 ### Key constraints
 
-1. **No park note field** — No confirmed command to pre-populate a note or
-   comment field with the POTA park reference. Options:
-   - (a) Skip it — just tune + lookup, no note
-   - (b) Append park ref to the callsign field (hacky, pollutes the call field)
-   - (c) Use ADIF inbound UDP to submit a partial QSO record with a comment
+1. **No park note field** — No command exists to pre-populate a note or comment
+   field. Confirmed: the Remote Control Interface v1.1 has no such command, and
+   the UDP ADIF inbound port commits full log entries (cannot pre-fill without
+   logging). Option (b) — appending to the callsign field — is hacky and rejected.
+   This gap is permanent unless Log4OM adds a new API command.
 
 3. **SetMode bug** — `SetMode` reportedly doesn't work as of Oct 2025. Validate
    against the current Log4OM release before implementing. May need to omit mode
@@ -244,8 +244,12 @@ class Log4OmBackend(RigBackend):
 
 1. ~~Is `SetMode` fixed in recent Log4OM builds?~~ **Answered:** Still broken in
    v2.40.0.0 (Apr 2026). OmniRig COM path deferred — see mode setting section.
-2. Is there a `SetNote`, `SetComment`, or `SetRemarks` command in the v1.1 spec
-   PDF that didn't show up in forum discussions?
+2. ~~Is there a `SetNote`, `SetComment`, or `SetRemarks` command in the v1.1 spec
+   PDF that didn't show up in forum discussions?~~ **Answered:** No. Confirmed by
+   reading the spec PDF and searching forum threads. The Remote Control Interface
+   has no note/comment/remarks command. The UDP ADIF inbound port commits full
+   log entries and cannot be used to pre-fill a field. Park note is a permanent
+   gap unless Log4OM adds a new API command in a future release.
 3. ~~Best ping/health-check approach?~~ **Answered:** Heartbeat on port 2242 /
    tasklist fallback. See Milestone 4.
 4. ~~Should the UI indicate session-only worked history?~~ **Answered:** No longer
@@ -315,7 +319,7 @@ in Log4OM settings upgrades to faster/more reliable detection automatically.
 removed — SQLite polling is simpler and requires no extra Log4OM configuration.
 The M5 listener code and tests are kept in git history.
 
-#### Milestone 6 — Full QSO history via SQLite ✅ DONE (code complete, 38 tests passing — pending end-to-end test)
+#### Milestone 6 — Full QSO history via SQLite ✅ DONE
 Replace the session-only UDP listener approach with direct SQLite polling.
 This closes the last major gap vs. MLDX and removes the N1MM_CONTACT
 configuration requirement — only Remote Control (on by default) is needed.
@@ -352,64 +356,22 @@ need to check for N1MM_CONTACT — that requirement is gone.
 
 Two bugs found during end-to-end testing. Both fixed and verified end-to-end.
 
-**Bug 1 — Second worked spot never shows (POLL_ONLY None-marker leak)**
+**Bug 1 — Second worked spot never shows (POLL_ONLY None-marker leak)** ✅ Fixed
 
-Root cause: When the background worker calls `get_worked()` and a callsign is
-not yet in the DB, the `None` in-flight marker is left in `worked_cache`. On the
-next spot refresh, that callsign is skipped (already in cache). So after the user
-logs a QSO with that callsign, it is never re-queued and never shows as worked.
+POLL_ONLY backends now delete `None` in-flight markers for callsigns not found
+in `get_worked()`, allowing them to be re-queued on the next cycle. `CacheMode`
+enum (POLL_ONLY / POLL_PUSH) added to `RigBackend`; MLDX=POLL_PUSH, Log4OM=POLL_ONLY.
 
-Fix (already coded in `_worked_cache_worker`):
-```python
-if cache_mode == CacheMode.POLL_ONLY:
-    for call in batch:
-        if call not in results and worked_cache.get(call) is None:
-            del worked_cache[call]   # remove None → re-queued on next cycle
-```
-`CacheMode` enum is also already in place:
-- `RigBackend.cache_mode = CacheMode.POLL_ONLY` (default, safe)
-- `MacLoggerDXBackend.cache_mode = CacheMode.POLL_PUSH` (has real-time push)
-- `Log4OmBackend.cache_mode = CacheMode.POLL_ONLY` (SQLite only, no push)
+**Bug 2 — Newly logged QSO never shows without manual refresh** ✅ Fixed
 
-Status: code is written and all 38 tests pass. Not yet verified end-to-end
-because testing was blocked by stale proxy processes (see note below).
+`_worked_cache_worker` now maintains a `_seen_callsigns` set and re-queues all
+seen callsigns absent from `worked_cache` every 10 seconds for POLL_ONLY backends.
+Newly logged QSOs appear within ~10 seconds automatically.
 
-**Bug 2 — Selecting Log4OM backend in UI does not trigger immediate lookup**
+**Bug 3 — Switching to Log4OM backend does not show existing worked badges** ✅ Fixed
 
-In `www/app.js`, the `#rig-select` change handler (line ~1424) only calls
-`lookupAndFetchWorked(lastRenderedSpots)` for the `mldx` backend. For all
-other backends (including log4om) it just clears `workedCache` and re-renders.
-This means switching to log4om shows no worked badges until the next auto-refresh.
-
-Fix needed in `app.js`: call `lookupAndFetchWorked` for any non-`none` backend,
-not just mldx. Change:
-```javascript
-if (backend === 'mldx') {
-    if (lastRenderedSpots.length) lookupAndFetchWorked(lastRenderedSpots);
-} else {
-    workedCache = {};
-    render();
-}
-```
-to something like:
-```javascript
-workedCache = {};
-render();
-if (backend !== 'none' && lastRenderedSpots.length) {
-    lookupAndFetchWorked(lastRenderedSpots);
-}
-```
-
-**Note on stale proxy processes:**
-During debugging we accidentally accumulated multiple background proxy processes
-via `python PotaProxy.py --no-browser 2>&1 &`. They all share port 8080 via
-`SO_REUSEADDR`, so new requests may be handled by old processes running
-pre-M6/pre-CacheMode code. Git Bash mangles `taskkill /PID X /F` (converts
-`/PID` to a file path). Use Python to kill by PID:
-```
-python -c "import subprocess; [subprocess.run(['taskkill','/F','/PID',str(p)]) for p in [PID1,PID2,...]]"
-```
-Or get PIDs first: `netstat -ano | grep :8080 | grep LISTEN`
+`app.js` backend-switch handler now calls `lookupAndFetchWorked(lastRenderedSpots)`
+for any non-`none` backend (not just mldx), so badges appear immediately on switch.
 
 ---
 
@@ -433,10 +395,10 @@ Place these after the checkout step and before the "Create release zip" step.
 
 ---
 
-## Document required backend setup steps in README
+## ~~Document required backend setup steps in README~~ ✅ DONE
 
-Users won't know to enable these settings before the integrations work.
-Add a "Setup" or "Before you start" note to each backend's section in README.md:
+Log4OM and MacLoggerDX setup sections added to README.md. Notes below kept
+for reference on what was added.
 
 ### Log4OM
 Log4OM's Remote Control Interface must be enabled before the integration works.
@@ -514,4 +476,4 @@ Two candidates already identified:
 | event name       | data payload             | trigger                          |
 |------------------|--------------------------|----------------------------------|
 | `spots`          | `[{spotId, …}, …]`       | Proxy-side spot refresh          |
-| `backend_status` | `{backend, ok, error}`   | Backend connect/disconnect — **done in v1.12.0** |
+| `backend_status` | `{backend, ok, error}`   | Backend connect/disconnect — **done in v1.11.1** |
