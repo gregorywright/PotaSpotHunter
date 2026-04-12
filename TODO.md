@@ -138,18 +138,68 @@ N1MM format reference: https://n1mmwp.hamdocs.com/appendices/external-udp-broadc
 | Set mode | AppleScript `setLogMode` | UDP XML `SetMode` | ⚠️ SetMode broken |
 | Callsign lookup | AppleScript `lookup` | UDP XML `SetCallsign` (auto-triggers QRZ) | None (simpler) |
 | Set park note | AppleScript `setNOTE` | **No equivalent confirmed** | ❌ Gap |
-| QSO history query | AppleScript iterate all QSOs | **No query API exists** | ❌ Gap |
+| QSO history query | AppleScript iterate all QSOs | SQLite DB query (read-only) | None (different mechanism) |
 | Real-time QSO events | UDP port 9932 "Log Report" | N1MM XML `<contactinfo>` UDP port 12060 | None (different format) |
-| Process health check | System Events (macOS) | TBD — Windows process list or UDP probe | TBD |
+| Process health check | System Events (macOS) | Heartbeat on 2242 / tasklist fallback | None |
+
+### Log4OM file layout (verified on v2.40.0.0, Apr 2026)
+
+Log4OM stores everything under `%APPDATA%\Roaming\Log4OM2\`:
+
+| Path | Purpose |
+|---|---|
+| `user\config.json` | All user preferences — DB path, connections, remote control settings, etc. |
+| `user\last_valid_config.json` | Auto-saved backup of the last known-good config |
+| `<callsign>.SQLite` or user-chosen path | QSO log database (SQLite 3) |
+| `Log4OMNG.SQLite` | Internal reference data (countries, awards, etc.) — not the QSO log |
+
+**config.json structure (relevant keys):**
+```json
+{
+  "UserConfigs": [{
+    "DbConfiguration": {
+      "DatabaseType": 1,
+      "Path": "C:\\Users\\<name>\\Documents\\logom-db.SQLite"
+    },
+    "RemoteControlEnabled": true,
+    "RemoteControlPort": 2241,
+    "RemoteControlDataOutputEnabled": false,
+    "RemoteControlTimedDataOutputEnabled": false,
+    "RemoteControlOutputPort": 2242,
+    "Connections": [
+      {
+        "Enabled": true,
+        "Name": "POTASPOTHUNTER",
+        "NetworkOutboundMessageType": 5,   // 5 = N1MM_CONTACT
+        "SourcePort": 12060,
+        "TargetAddress": "127.0.0.1"
+      }
+    ]
+  }]
+}
+```
+
+**QSO database — `Log` table schema (key columns):**
+`callsign`, `band` (e.g. "20m"), `mode`, `freq` (DECIMAL MHz, 0 if not recorded),
+`qsodate` (DATETIME UTC), `qsoid` (PK), `stationcallsign`, `notes`, `contactreferences`
+
+Safe to open read-only while Log4OM is running:
+```python
+con = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=5.0)
+```
+JTAlert uses the same approach and is an officially documented integration.
+
+**config.json as a read-only diagnostic tool:**
+PSH can read config.json at startup/backend-switch to check:
+- Is `RemoteControlEnabled` true? (required for tune/callsign)
+- Does `Connections` contain an entry with `NetworkOutboundMessageType == 5`
+  (N1MM_CONTACT) and `SourcePort == 12060`? (required for worked cache updates)
+- If either is missing, surface a clear status bar message pointing the user to
+  the exact setting rather than silently failing. Never write to config.json.
 
 ### Key constraints
 
-1. **No QSO history query** — Log4OM has no API to ask "has this callsign been
-   worked before?". The worked-callsign indicator can only be built from
-   real-time N1MM UDP broadcast events captured during the current session.
-   Historical QSO data is not accessible. This is the biggest UX difference vs. MLDX.
-
-2. **No park note field** — No confirmed command to pre-populate a note or
+1. **No park note field** — No confirmed command to pre-populate a note or
    comment field with the POTA park reference. Options:
    - (a) Skip it — just tune + lookup, no note
    - (b) Append park ref to the callsign field (hacky, pollutes the call field)
@@ -179,7 +229,8 @@ class Log4OmBackend(RigBackend):
         # note: no park note equivalent — TBD
 
     def get_worked(self, callsigns) -> dict:
-        # Return {} — no query API; worked cache built from live events only
+        # Query SQLite DB read-only; path read from config.json at init
+        # Returns full history (not session-only)
 
     def start_log_listener(self, callback) -> None:
         # Listen for N1MM <contactinfo> XML on DEFAULT_LISTEN_PORT
@@ -195,14 +246,14 @@ class Log4OmBackend(RigBackend):
    v2.40.0.0 (Apr 2026). OmniRig COM path deferred — see mode setting section.
 2. Is there a `SetNote`, `SetComment`, or `SetRemarks` command in the v1.1 spec
    PDF that didn't show up in forum discussions?
-3. ~~Best ping/health-check approach?~~ **Answered:** Listen on port 2242 for
-   the 5-second heartbeat Log4OM sends when "Send 5 seconds status messages"
-   is enabled. Declare backend up if heartbeat arrived within ~15s.
-4. Should the UI indicate that worked history is "this session only" when Log4OM
-   is the active backend (vs. full history with MLDX)?
-5. ~~Does Log4OM require explicit user configuration?~~ **Answered:** Yes —
-   Configuration → Software integration → Connections → Remote Control →
-   check "Enable remote control" (port 2241). Documented in TODO setup section.
+3. ~~Best ping/health-check approach?~~ **Answered:** Heartbeat on port 2242 /
+   tasklist fallback. See Milestone 4.
+4. ~~Should the UI indicate session-only worked history?~~ **Answered:** No longer
+   needed — full history is available via SQLite query (Milestone 6).
+5. ~~Does Log4OM require explicit user configuration?~~ **Answered:** Yes — see
+   "Log4OM file layout" section above and README setup steps below.
+6. ~~Where does Log4OM store QSOs and config?~~ **Answered:** SQLite DB at
+   user-configurable path discoverable from config.json. See file layout section.
 
 ### Implementation milestones
 
@@ -260,6 +311,106 @@ in Log4OM settings upgrades to faster/more reliable detection automatically.
 - `--log4om-listen-port` CLI arg for non-default setups
 - 8 unit tests added (36 total passing)
 
+**Note:** M5 code is superseded by M6. The N1MM_CONTACT UDP listener will be
+removed — SQLite polling is simpler and requires no extra Log4OM configuration.
+The M5 listener code and tests are kept in git history.
+
+#### Milestone 6 — Full QSO history via SQLite ✅ DONE (code complete, 38 tests passing — pending end-to-end test)
+Replace the session-only UDP listener approach with direct SQLite polling.
+This closes the last major gap vs. MLDX and removes the N1MM_CONTACT
+configuration requirement — only Remote Control (on by default) is needed.
+
+**Remove:** unwire `start_log_listener` / `stop_log_listener` for Log4OM
+(the heartbeat listener on port 2242 stays — that's for ping, not QSO events).
+
+**DB path discovery:** at init, read
+`%APPDATA%\Roaming\Log4OM2\user\config.json` →
+`UserConfigs[0].DbConfiguration.Path`. Re-resolve on every reconnect (ping
+success after a gap) so a DB path change is picked up automatically without
+restarting PSH.
+
+**`get_worked()` query:** open read-only (`uri=True, timeout=5.0`). For a
+batch of callsigns:
+```sql
+SELECT callsign, COUNT(*) AS count, MAX(qsodate) AS last_date, band, mode
+FROM Log
+WHERE callsign IN (?, ?, ...)
+GROUP BY callsign
+```
+Return dict matching the existing `{callsign: {count, last_date, worked_today,
+last_band, last_mode, last_freq_mhz, last_park_ref}}` shape. Fall back to `{}`
+if config.json or the DB file is missing/unreadable.
+
+**Config diagnostics:** at init, check config.json for `RemoteControlEnabled
+== true` and log a WARNING if missing, pointing to the exact setting. No longer
+need to check for N1MM_CONTACT — that requirement is gone.
+
+**Verify:** select Log4OM, click a spot for a callsign already in the log —
+`×N` badge should appear immediately without logging a new QSO.
+
+#### Milestone 7 — Fix worked-cache bugs for POLL_ONLY backends ✅ DONE
+
+Two bugs found during end-to-end testing. Both fixed and verified end-to-end.
+
+**Bug 1 — Second worked spot never shows (POLL_ONLY None-marker leak)**
+
+Root cause: When the background worker calls `get_worked()` and a callsign is
+not yet in the DB, the `None` in-flight marker is left in `worked_cache`. On the
+next spot refresh, that callsign is skipped (already in cache). So after the user
+logs a QSO with that callsign, it is never re-queued and never shows as worked.
+
+Fix (already coded in `_worked_cache_worker`):
+```python
+if cache_mode == CacheMode.POLL_ONLY:
+    for call in batch:
+        if call not in results and worked_cache.get(call) is None:
+            del worked_cache[call]   # remove None → re-queued on next cycle
+```
+`CacheMode` enum is also already in place:
+- `RigBackend.cache_mode = CacheMode.POLL_ONLY` (default, safe)
+- `MacLoggerDXBackend.cache_mode = CacheMode.POLL_PUSH` (has real-time push)
+- `Log4OmBackend.cache_mode = CacheMode.POLL_ONLY` (SQLite only, no push)
+
+Status: code is written and all 38 tests pass. Not yet verified end-to-end
+because testing was blocked by stale proxy processes (see note below).
+
+**Bug 2 — Selecting Log4OM backend in UI does not trigger immediate lookup**
+
+In `www/app.js`, the `#rig-select` change handler (line ~1424) only calls
+`lookupAndFetchWorked(lastRenderedSpots)` for the `mldx` backend. For all
+other backends (including log4om) it just clears `workedCache` and re-renders.
+This means switching to log4om shows no worked badges until the next auto-refresh.
+
+Fix needed in `app.js`: call `lookupAndFetchWorked` for any non-`none` backend,
+not just mldx. Change:
+```javascript
+if (backend === 'mldx') {
+    if (lastRenderedSpots.length) lookupAndFetchWorked(lastRenderedSpots);
+} else {
+    workedCache = {};
+    render();
+}
+```
+to something like:
+```javascript
+workedCache = {};
+render();
+if (backend !== 'none' && lastRenderedSpots.length) {
+    lookupAndFetchWorked(lastRenderedSpots);
+}
+```
+
+**Note on stale proxy processes:**
+During debugging we accidentally accumulated multiple background proxy processes
+via `python PotaProxy.py --no-browser 2>&1 &`. They all share port 8080 via
+`SO_REUSEADDR`, so new requests may be handled by old processes running
+pre-M6/pre-CacheMode code. Git Bash mangles `taskkill /PID X /F` (converts
+`/PID` to a file path). Use Python to kill by PID:
+```
+python -c "import subprocess; [subprocess.run(['taskkill','/F','/PID',str(p)]) for p in [PID1,PID2,...]]"
+```
+Or get PIDs first: `netstat -ano | grep :8080 | grep LISTEN`
+
 ---
 
 ## CI: run tests in GitHub Actions release workflow
@@ -314,15 +465,9 @@ README should tell users:
 3. Without this, tune/callsign commands are silently dropped (UDP, no feedback)
 
 **Required — worked callsign indicator (×N badges):**
-4. On the same page, go to the **UDP** tab (Software integration → Connections → UDP)
-5. In the **UDP OUTBOUND** section, fill in:
-   - **Port**: `12060`
-   - **Connection name**: anything, e.g. `PSH`
-   - **Service type**: `N1MM_CONTACT` (select from dropdown)
-   - **Destination IP Address**: `127.0.0.1`
-6. Click the green **+** button to add it to the outbound connections list
-7. Click **Save and apply**
-8. Without this, QSOs logged in Log4OM will never appear as worked in PSH
+- No extra configuration needed — PSH reads the Log4OM SQLite database
+  directly (same approach as JTAlert). Works out of the box once Remote
+  Control is enabled.
 
 **Optional — improves backend health detection:**
 9. On the Remote Control tab, check **Enable data output through UDP**

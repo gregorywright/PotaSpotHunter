@@ -112,9 +112,10 @@ import subprocess
 import sys
 import threading
 import time
+import os
+import sqlite3
 import uuid
 import webbrowser
-import xml.etree.ElementTree as ET
 import xmlrpc.client
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
@@ -167,10 +168,38 @@ worked_cache_lock = threading.Lock()
 # The background worker drains this in batches of up to 50.
 _lookup_queue: queue.Queue = queue.Queue()
 
+# All callsigns ever submitted via /lookup_calls.
+# Used by _worked_cache_worker to periodically re-poll POLL_ONLY backends —
+# so a newly logged QSO shows up within ~10 s without waiting for a spot refresh.
+_seen_callsigns: set = set()
+
 
 # ════════════════════════════════════════════════════════════
 # BASE CLASS  —  defines the interface every backend must implement
 # ════════════════════════════════════════════════════════════
+
+import enum
+
+class CacheMode(enum.Enum):
+    """
+    Declares how a backend's worked-callsign cache should behave.
+
+    POLL_ONLY  — the backend queries a data source (e.g. SQLite) but has
+                 no real-time push channel.  The cache worker must clear
+                 in-flight markers for unworked callsigns after each query
+                 so they can be re-queued on the next lookup cycle.  Newly
+                 logged QSOs are picked up on the next cycle automatically.
+                 This is the safe default; new backends get it for free.
+
+    POLL_PUSH  — the backend provides both a one-shot historical query AND
+                 a real-time push channel (UDP listener).  Unworked
+                 callsigns are cached permanently; the push channel delivers
+                 updates when a QSO is logged.  MacLoggerDXBackend uses
+                 this model.
+    """
+    POLL_ONLY = "poll_only"
+    POLL_PUSH = "poll_push"
+
 
 class RigBackend:
     """
@@ -184,6 +213,10 @@ class RigBackend:
 
     # Human-readable name shown in log messages and JSON responses.
     name: str = "base"
+
+    # Declares the worked-cache update strategy. See CacheMode for details.
+    # Defaults to POLL_ONLY — the safe choice for backends without a push channel.
+    cache_mode: CacheMode = CacheMode.POLL_ONLY
 
     def tune(self, freq_hz: int, mode: str) -> None:
         """
@@ -646,7 +679,8 @@ class MacLoggerDXBackend(RigBackend):
     quotes or special characters.
     """
 
-    name = "mldx"
+    name      = "mldx"
+    cache_mode = CacheMode.POLL_PUSH  # historical query + real-time UDP push
 
     # Delay in seconds between the lookup call and the setNOTE call.
     # The lookup is asynchronous; MacLoggerDX contacts QRZ in the background.
@@ -1021,26 +1055,119 @@ class Log4OmBackend(RigBackend):
     """
 
     name                   = "log4om"
+    cache_mode             = CacheMode.POLL_ONLY  # SQLite query only, no push channel
     DEFAULT_PORT           = 2241
     DEFAULT_HEARTBEAT_PORT = 2242
-    DEFAULT_LISTEN_PORT    = 12060   # N1MM <contactinfo> UDP broadcast port
     HEARTBEAT_TIMEOUT      = 15      # seconds — 3 missed 5s heartbeats
 
+    # Path to Log4OM's user preferences file — contains the DB path and
+    # settings we use for diagnostics. Windows-only; gracefully returns None
+    # on other platforms or if Log4OM is not installed.
+    _CONFIG_PATH = os.path.join(
+        os.environ.get('APPDATA', ''), 'Log4OM2', 'user', 'config.json'
+    )
+
     def __init__(self, host: str = "127.0.0.1", port: int = DEFAULT_PORT,
-                 heartbeat_port: int = DEFAULT_HEARTBEAT_PORT,
-                 listen_port: int = DEFAULT_LISTEN_PORT):
+                 heartbeat_port: int = DEFAULT_HEARTBEAT_PORT):
         self.host           = host
         self.port           = port
         self.heartbeat_port = heartbeat_port
-        self.listen_port    = listen_port
 
         self._last_heartbeat          = 0.0
         self._ever_received_heartbeat = False
         self._stop_heartbeat          = False
+        self._last_ping_ok            = None  # None=unknown, True=up, False=down
+
+        self._db_path = self._resolve_db_path()
 
         t = threading.Thread(target=self._heartbeat_listener,
                              daemon=True, name="log4om-heartbeat")
         t.start()
+
+    def _resolve_db_path(self) -> "str | None":
+        """
+        Read config.json to find the Log4OM SQLite database path.
+        Also checks RemoteControlEnabled and logs a warning if it is off.
+        Returns the path string, or None if config.json is missing/unreadable.
+        """
+        try:
+            with open(self._CONFIG_PATH, encoding='utf-8-sig') as f:
+                cfg = json.load(f)
+            uc = cfg['UserConfigs'][0]
+            if not uc.get('RemoteControlEnabled', True):
+                log.warning(
+                    "log4om  RemoteControlEnabled is false in config.json — "
+                    "tune and callsign commands will be silently dropped. "
+                    "Fix: Configuration → Software integration → Connections "
+                    "→ Remote Control → check 'Enable remote control'."
+                )
+            db_path = uc['DbConfiguration']['Path']
+            log.debug("log4om  database resolved: %s", db_path)
+            return db_path
+        except FileNotFoundError:
+            log.debug("log4om  config.json not found at %s", self._CONFIG_PATH)
+            return None
+        except Exception as e:
+            log.warning("log4om  could not read config.json: %s", e)
+            return None
+
+    @staticmethod
+    def _open_db_readonly(path: str) -> sqlite3.Connection:
+        """
+        Open the Log4OM SQLite database strictly read-only.
+
+        Uses the SQLite URI filename format with mode=ro, which maps to
+        SQLITE_OPEN_READONLY at the C level — SQLite itself will reject any
+        attempt to acquire a write lock, regardless of what the caller does.
+        The uri=True kwarg is required; without it Python ignores the ?mode=ro
+        parameter and opens the file read-write.
+
+        Never replace this with a plain sqlite3.connect(path) call.
+        """
+        return sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=5.0)
+
+    def get_worked(self, callsigns: list) -> dict:
+        """
+        Query the Log4OM SQLite database for worked history for the given
+        callsigns. Opens the file read-only — safe while Log4OM is running
+        (same approach used by JTAlert).
+
+        Returns the standard {callsign: {count, last_date, worked_today,
+        last_band, last_mode, last_freq_mhz, last_park_ref}} dict.
+        Returns {} on any error (missing DB, locked, schema mismatch, etc.).
+        """
+        if not callsigns or not self._db_path:
+            return {}
+        from datetime import datetime, timezone
+        try:
+            con = self._open_db_readonly(self._db_path)
+            placeholders = ','.join('?' * len(callsigns))
+            cur = con.cursor()
+            cur.execute(
+                f"SELECT callsign, COUNT(*) AS count, MAX(qsodate) AS last_date, "
+                f"band, mode FROM Log "
+                f"WHERE callsign IN ({placeholders}) GROUP BY callsign",
+                [c.upper() for c in callsigns],
+            )
+            today_utc = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+            results = {}
+            for call, count, last_date, band, mode in cur.fetchall():
+                results[call] = {
+                    'count':         count,
+                    'last_date':     last_date,
+                    'worked_today':  bool(last_date and last_date.startswith(today_utc)),
+                    'last_band':     band or None,
+                    'last_mode':     mode or None,
+                    'last_freq_mhz': None,
+                    'last_park_ref': None,
+                }
+            con.close()
+            log.debug("log4om  get_worked: %d/%d found in DB",
+                      len(results), len(callsigns))
+            return results
+        except Exception as e:
+            log.debug("log4om  get_worked error: %s", e)
+            return {}
 
     def _heartbeat_listener(self) -> None:
         """
@@ -1105,132 +1232,36 @@ class Log4OmBackend(RigBackend):
         if self._ever_received_heartbeat:
             elapsed = time.monotonic() - self._last_heartbeat
             if elapsed > self.HEARTBEAT_TIMEOUT:
+                self._last_ping_ok = False
                 raise ConnectionRefusedError(
                     f"Log4OM heartbeat not received for {elapsed:.0f}s "
                     f"— is Log4OM running?"
                 )
-            return "ok"
-
-        # Fallback: check Windows process list.
-        # Log4OM's executable is L4ONG.exe; also check for Log4OM in case
-        # a future version changes the name.
-        try:
-            result = subprocess.run(
-                ["tasklist", "/FO", "CSV", "/NH"],
-                capture_output=True, text=True, timeout=5,
-            )
-            if "L4ONG" not in result.stdout and "Log4OM" not in result.stdout:
-                raise ConnectionRefusedError(
-                    "Log4OM (L4ONG.exe) not found in process list "
-                    "— is Log4OM running?"
-                )
-        except FileNotFoundError:
-            # tasklist not available (non-Windows) — assume ok
-            pass
-        return "ok"
-
-    def start_log_listener(self, callback) -> None:
-        """
-        Bind UDP socket on listen_port (default 12060) and listen for N1MM+
-        <contactinfo> XML datagrams that Log4OM broadcasts whenever a QSO is
-        logged.  Calls callback(entry_dict) for each logged QSO.
-
-        N1MM+ contactinfo XML format (fields used):
-          <call>        — callsign logged
-          <band>        — band in meters (e.g. "20" → stored as "20m")
-          <mode>        — mode string (USB/LSB → collapsed to SSB)
-          <rxfreq>/<txfreq> — frequency in tens of Hz (÷100000 → MHz string)
-          <timestamp>   — ISO-like log timestamp
-
-        Log4OM broadcasts on 255.255.255.255:12060 by default.
-        No Log4OM configuration changes needed beyond normal UDP output.
-
-        Runs in a daemon thread. Safe to call multiple times — stops any
-        existing listener first.
-        """
-        self.stop_log_listener()
-
-        self._listener_stop = threading.Event()
-
-        def _listen():
+        else:
+            # Fallback: check Windows process list.
+            # Log4OM's executable is L4ONG.exe; also check for Log4OM in case
+            # a future version changes the name.
             try:
-                sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-                sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-                sock.bind(('', self.listen_port))
-                sock.settimeout(1.0)
-            except OSError as e:
-                log.warning(
-                    "log4om  UDP log listener cannot bind port %d: %s",
-                    self.listen_port, e,
+                result = subprocess.run(
+                    ["tasklist", "/FO", "CSV", "/NH"],
+                    capture_output=True, text=True, timeout=5,
                 )
-                return
-
-            log.info("log4om  UDP log listener started on port %d", self.listen_port)
-            while not self._listener_stop.is_set():
-                try:
-                    data, _ = sock.recvfrom(65535)
-                except socket.timeout:
-                    continue
-                except OSError:
-                    break
-                try:
-                    msg = data.decode('utf-8', errors='replace').strip()
-                    if '<contactinfo>' not in msg:
-                        continue
-                    log.debug("log4om  UDP contactinfo received: %s", msg[:120])
-                    root = ET.fromstring(msg)
-                    call = (root.findtext('call') or '').strip().upper()
-                    if not call:
-                        log.debug("log4om  contactinfo had no <call>: %s", msg[:80])
-                        continue
-                    band_raw = (root.findtext('band') or '').strip()
-                    # band is in meters as a plain number: "20" → "20m"
-                    band = (band_raw + 'm') if band_raw else None
-                    mode = (root.findtext('mode') or '').strip().upper()
-                    if mode in ('USB', 'LSB', 'AM'):
-                        mode = 'SSB'
-                    # txfreq / rxfreq are in tens of Hz; ÷100000 → MHz string
-                    freq_raw = root.findtext('txfreq') or root.findtext('rxfreq') or ''
-                    try:
-                        freq_mhz = str(int(freq_raw) / 100000) if freq_raw else None
-                    except ValueError:
-                        freq_mhz = None
-                    timestamp = (root.findtext('timestamp') or '').strip() or None
-                    log.info(
-                        "log4om  QSO logged: call=%s band=%s mode=%s",
-                        call, band or '?', mode or '?',
+                if "L4ONG" not in result.stdout and "Log4OM" not in result.stdout:
+                    self._last_ping_ok = False
+                    raise ConnectionRefusedError(
+                        "Log4OM (L4ONG.exe) not found in process list "
+                        "— is Log4OM running?"
                     )
-                    callback({
-                        'call':          call,
-                        'band':          band,
-                        'mode':          mode or None,
-                        'last_freq_mhz': freq_mhz,
-                        'last_date':     timestamp,
-                        'last_park_ref': None,
-                    })
-                except ET.ParseError as e:
-                    log.debug("log4om  XML parse error: %s", e)
-                except Exception as e:
-                    log.debug("log4om  log listener error: %s", e)
+            except FileNotFoundError:
+                # tasklist not available (non-Windows) — assume ok
+                pass
 
-            sock.close()
-            log.info("log4om  UDP log listener stopped")
-
-        self._listener_thread = threading.Thread(
-            target=_listen, daemon=True, name="log4om-log-listener"
-        )
-        self._listener_thread.start()
-
-    def stop_log_listener(self) -> None:
-        """Stop the UDP log listener thread and block until it exits."""
-        stop_event = getattr(self, '_listener_stop', None)
-        if stop_event:
-            stop_event.set()
-        thread = getattr(self, '_listener_thread', None)
-        if thread and thread.is_alive():
-            thread.join(timeout=3)
-        self._listener_stop = None
-        self._listener_thread = None
+        # Ping succeeded. Re-resolve DB path if we're recovering from a
+        # previous failure (Log4OM may have been reconfigured while it was down).
+        if self._last_ping_ok is False:
+            self._db_path = self._resolve_db_path()
+        self._last_ping_ok = True
+        return "ok"
 
     def tune(self, freq_hz: int, mode: str, callsign: str = "") -> None:
         self._udp_send("SetTxFrequency", Frequency=freq_hz)
@@ -1271,8 +1302,7 @@ def _build_backends(args):
         "flrig":   FlrigBackend(host=args.rig_host, port=args.rig_port),
         "rigctld": RigctldBackend(host=args.rig_host, port=args.rigctld_port),
         "log4om":  Log4OmBackend(host=args.rig_host, port=args.log4om_port,
-                                   heartbeat_port=args.log4om_heartbeat_port,
-                                   listen_port=args.log4om_listen_port),
+                                   heartbeat_port=args.log4om_heartbeat_port),
         "none":    NoneBackend(),
     }
 
@@ -1284,9 +1314,30 @@ def _worked_cache_worker(get_active_backend):
     Pulls callsigns from the queue in batches of up to 50, calls
     active_backend.get_worked(), and writes results into worked_cache
     under the lock.  Runs forever as a daemon thread.
+
+    For POLL_ONLY backends (e.g. Log4OM SQLite), also re-queues every seen
+    callsign that is absent from worked_cache every POLL_ONLY_INTERVAL seconds.
+    This picks up newly logged QSOs within ~10 s without waiting for a spot refresh.
     """
     import time
+    POLL_ONLY_INTERVAL = 10  # seconds between re-polls for POLL_ONLY backends
+    _last_repoll = 0.0
     while True:
+        # ── Periodic re-poll for POLL_ONLY backends ──────────────────────────
+        # Re-queue any seen callsign that is absent from worked_cache (i.e. was
+        # previously checked and found not-worked).  Skips callsigns that are
+        # already in-flight (None) or already confirmed worked (dict present).
+        backend    = get_active_backend()
+        cache_mode = backend.cache_mode
+        now = time.monotonic()
+        if cache_mode == CacheMode.POLL_ONLY and now - _last_repoll >= POLL_ONLY_INTERVAL:
+            with worked_cache_lock:
+                for call in _seen_callsigns:
+                    if call not in worked_cache:
+                        worked_cache[call] = None  # mark as in-flight
+                        _lookup_queue.put(call)
+            _last_repoll = now
+
         batch = []
         try:
             # Block until at least one callsign is available
@@ -1300,7 +1351,8 @@ def _worked_cache_worker(get_active_backend):
             except queue.Empty:
                 break
 
-        backend = get_active_backend()
+        backend    = get_active_backend()
+        cache_mode = backend.cache_mode
         try:
             results = backend.get_worked(batch)
         except Exception as e:
@@ -1310,19 +1362,19 @@ def _worked_cache_worker(get_active_backend):
         updates = {}
         with worked_cache_lock:
             for call, data in results.items():
-                # Only update if not already in cache with richer data
-                # (UDP listener may have already populated band/mode)
-                existing = worked_cache.get(call)
-                if existing and existing.get('last_band'):
-                    # Keep the richer UDP data, just update count/date
-                    existing['count'] = data['count']
-                    if data['last_date']:
-                        existing['last_date'] = data['last_date']
-                    existing['worked_today'] = existing['worked_today'] or data['worked_today']
-                    updates[call] = dict(existing)
-                else:
-                    worked_cache[call] = data
-                    updates[call] = dict(data)
+                worked_cache[call] = data
+                updates[call] = dict(data)
+
+            if cache_mode == CacheMode.POLL_ONLY:
+                # No push channel — clear in-flight markers for unworked
+                # callsigns so they are re-queued on the next lookup cycle.
+                # This is what allows newly logged QSOs to be picked up
+                # without a real-time push event.
+                for call in batch:
+                    if call not in results and worked_cache.get(call) is None:
+                        del worked_cache[call]
+            # POLL_PUSH: leave None markers in place — the push channel
+            # (UDP listener) will deliver updates when QSOs are logged.
 
         for call, entry in updates.items():
             broker.publish('worked_update', {'call': call, 'entry': entry})
@@ -1596,24 +1648,29 @@ class ProxyHandler(BaseHTTPRequestHandler):
             return
 
         # ── Route: /lookup_calls ─────────────────────────────
-        # Enqueues callsigns for background AppleScript lookup.
-        # Only queues if the active backend supports get_worked (i.e. MLDX).
+        # Enqueues callsigns for background worked-history lookup.
+        # Skips backends that don't implement get_worked (base class no-op).
         if path == "/lookup_calls":
             calls_param = (qs.get("calls") or [""])[0]
             calls = [c.strip().upper() for c in calls_param.split(",") if c.strip()]
-            # Check if active backend actually implements get_worked
             active = self.get_active_backend()
             if type(active).get_worked is RigBackend.get_worked:
-                # Base class no-op — don't bother queuing
+                # Backend has no worked-history support — nothing to queue.
+                log.info("lookup_calls: backend '%s' has no get_worked, skipping",
+                         active.name)
                 self._json_response(200, {"queued": 0})
                 return
+            log.info("lookup_calls: backend='%s' cache_mode=%s calls=%d",
+                     active.name, active.cache_mode.value, len(calls))
             queued = 0
             with worked_cache_lock:
                 for call in calls:
+                    _seen_callsigns.add(call)
                     if call not in worked_cache:
                         worked_cache[call] = None  # mark as in-flight
                         _lookup_queue.put(call)
                         queued += 1
+            log.info("lookup_calls: queued=%d", queued)
             self._json_response(200, {"queued": queued})
             return
 
@@ -1843,13 +1900,7 @@ def parse_args():
         metavar="PORT",
         help="Port for Log4OM 5-second status heartbeat (default: 2242).",
     )
-    p.add_argument(
-        "--log4om-listen-port",
-        type=int,
-        default=Log4OmBackend.DEFAULT_LISTEN_PORT,
-        metavar="PORT",
-        help="Port for Log4OM N1MM contactinfo UDP broadcasts (default: 12060).",
-    )
+
     p.add_argument(
         "--no-browser",
         action="store_true",

@@ -1419,13 +1419,13 @@ document.getElementById('rig-select').addEventListener('change', e => {
       }
     })
     .catch(() => {});
-  // If switching to MLDX, seed the AppleScript history.
-  // If switching away, clear stale worked badges.
-  if (backend === 'mldx') {
-    if (lastRenderedSpots.length) lookupAndFetchWorked(lastRenderedSpots);
-  } else {
-    workedCache = {};
-    render();
+  // Clear stale worked badges whenever the backend changes, then immediately
+  // seed the new backend's history for all currently visible spots.
+  // (For 'none', there's no backend to query so we just clear and re-render.)
+  workedCache = {};
+  render();
+  if (backend !== 'none' && lastRenderedSpots.length) {
+    lookupAndFetchWorked(lastRenderedSpots);
   }
 });
 
