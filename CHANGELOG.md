@@ -1,3 +1,17 @@
+## [Unreleased]
+### Added
+- **Log4OM backend (beta, Windows only)** — frequency tuning and callsign lookup
+  via UDP Remote Control Interface; worked callsign history (`×N` badges) via
+  direct SQLite read of the Log4OM QSO database (same approach as JTAlert).
+  Requires no extra Log4OM configuration beyond the default install — Remote
+  Control is enabled by default.
+- **Worked callsign indicator now supported on Log4OM** in addition to MacLoggerDX.
+  Newly logged QSOs appear as worked within ~10 seconds without a manual refresh.
+### Known limitations (Log4OM beta)
+- Mode is not set when tuning — Log4OM's `SetMode` UDP command is non-functional
+  in the current Log4OM release. Set mode manually or via your CAT interface.
+- Park reference note is not pre-filled — Log4OM has no equivalent field.
+
 ## [1.11.1] - 2026-04-10
 ### Fixed
 - Backend monitor thread now pings the active backend every 10 seconds and
