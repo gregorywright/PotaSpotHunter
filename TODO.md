@@ -250,13 +250,15 @@ Two-tier approach so it works with default Log4OM install config:
 Users get backend-down detection out of the box. Enabling the heartbeat
 in Log4OM settings upgrades to faster/more reliable detection automatically.
 
-#### Milestone 5 — Real-time worked cache
+#### Milestone 5 — Real-time worked cache ✅
 - Start a listener thread on port 12060 for Log4OM's N1MM-format
   `<contactinfo>` UDP broadcasts
-- Parse `call`, `band`, `rxfreq`/`txfreq` (÷10 for Hz), `mode`, `timestamp`
+- Parse `call`, `band`, `rxfreq`/`txfreq` (÷100000 for MHz), `mode`, `timestamp`
 - Feed into the existing `worked_cache` so `×N` badges and colored dots appear
-- Session-only (no historical data); consider a UI hint when Log4OM is active
-  (answers open question 4)
+- Session-only (no historical data)
+- USB/LSB/AM collapsed to SSB (matching MLDX behaviour)
+- `--log4om-listen-port` CLI arg for non-default setups
+- 8 unit tests added (36 total passing)
 
 ---
 
@@ -306,17 +308,27 @@ Settings on that page:
 
 README should tell users:
 
-**Required:**
-1. Open Configuration → Software integration → Connections → Remote Control
+**Required — tune and callsign lookup:**
+1. Open Configuration → Software integration → Connections → **Remote Control** tab
 2. Confirm **Enable remote control** is checked (it is by default), port 2241
 3. Without this, tune/callsign commands are silently dropped (UDP, no feedback)
 
-**Optional (improves backend health detection):**
-4. On the same page, check **Enable data output through UDP**
-5. Check **Send 5 seconds status messages**
-6. With this enabled, POTA Spot Hunter can detect when Log4OM closes and
-   show the reconnect dialog faster. Without it, a process-list check is
-   used instead — still works, just slightly slower to detect a crash.
+**Required — worked callsign indicator (×N badges):**
+4. On the same page, go to the **UDP** tab (Software integration → Connections → UDP)
+5. In the **UDP OUTBOUND** section, fill in:
+   - **Port**: `12060`
+   - **Connection name**: anything, e.g. `PSH`
+   - **Service type**: `N1MM_CONTACT` (select from dropdown)
+   - **Destination IP Address**: `127.0.0.1`
+6. Click the green **+** button to add it to the outbound connections list
+7. Click **Save and apply**
+8. Without this, QSOs logged in Log4OM will never appear as worked in PSH
+
+**Optional — improves backend health detection:**
+9. On the Remote Control tab, check **Enable data output through UDP**
+10. Check **Send 5 seconds status messages**
+11. With this enabled, PSH detects when Log4OM closes faster. Without it,
+    a process-list check is used instead — still works, just slightly slower.
 
 ### MacLoggerDX
 MLDX's UDP Broadcast must be enabled for the worked-callsign indicator to work:

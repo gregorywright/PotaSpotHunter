@@ -1,7 +1,7 @@
 # tests/test_proxy_backends.py
 # Unit tests for PotaProxy backends — no radio software required.
 # Run with: python3 build.py test
-import sys, os, time, pytest
+import sys, os, time, socket, pytest
 from unittest.mock import patch, MagicMock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
@@ -207,3 +207,95 @@ def test_log4om_ping_ok_when_tasklist_unavailable():
     backend = _make_log4om_backend()
     with patch('subprocess.run', side_effect=FileNotFoundError):
         assert backend.ping() == "ok"
+
+
+# ── Log4OM: log listener (M5 worked cache) ───────────────────────────────────
+
+def _log4om_contactinfo_xml(call='W1AW', band='20', mode='FT8',
+                             txfreq='1407400', timestamp='20250101 120000'):
+    """Build a minimal N1MM contactinfo XML datagram."""
+    return (
+        f'<contactinfo>'
+        f'<call>{call}</call>'
+        f'<band>{band}</band>'
+        f'<mode>{mode}</mode>'
+        f'<txfreq>{txfreq}</txfreq>'
+        f'<timestamp>{timestamp}</timestamp>'
+        f'</contactinfo>'
+    ).encode('utf-8')
+
+
+def _log4om_run_listener(xml_bytes):
+    """
+    Start Log4OmBackend log listener with a mocked socket that yields one
+    packet then times out.  Returns the list of callback entries received.
+    """
+    backend = _make_log4om_backend()
+    received = []
+
+    recv_calls = [0]
+
+    def fake_recvfrom(bufsize):
+        if recv_calls[0] == 0:
+            recv_calls[0] += 1
+            return xml_bytes, ('127.0.0.1', 12060)
+        # Signal stop after first packet
+        backend._listener_stop.set()
+        raise socket.timeout
+
+    mock_sock = MagicMock()
+    mock_sock.recvfrom.side_effect = fake_recvfrom
+
+    with patch('socket.socket', return_value=mock_sock):
+        backend.start_log_listener(received.append)
+        # Wait for the listener thread to finish (stop event is set inside fake_recvfrom)
+        backend._listener_thread.join(timeout=3)
+
+    return received
+
+
+def test_log4om_listener_callsign_extracted():
+    entries = _log4om_run_listener(_log4om_contactinfo_xml(call='W1AW'))
+    assert len(entries) == 1
+    assert entries[0]['call'] == 'W1AW'
+
+
+def test_log4om_listener_band_has_m_suffix():
+    entries = _log4om_run_listener(_log4om_contactinfo_xml(band='20'))
+    assert entries[0]['band'] == '20m'
+
+
+def test_log4om_listener_mode_preserved():
+    entries = _log4om_run_listener(_log4om_contactinfo_xml(mode='FT8'))
+    assert entries[0]['mode'] == 'FT8'
+
+
+def test_log4om_listener_ssb_variants_collapsed():
+    for raw_mode in ('USB', 'LSB', 'AM'):
+        entries = _log4om_run_listener(_log4om_contactinfo_xml(mode=raw_mode))
+        assert entries[0]['mode'] == 'SSB', f"{raw_mode} should collapse to SSB"
+
+
+def test_log4om_listener_freq_converted_to_mhz():
+    # txfreq in tens-of-Hz: 1407400 → 14.074 MHz  (÷100000)
+    entries = _log4om_run_listener(_log4om_contactinfo_xml(txfreq='1407400'))
+    assert entries[0]['last_freq_mhz'] == '14.074'
+
+
+def test_log4om_listener_ignores_non_contactinfo():
+    # Heartbeat / other UDP packets on same port should be silently dropped
+    entries = _log4om_run_listener(b'<SomeOtherMessage><data>x</data></SomeOtherMessage>')
+    assert entries == []
+
+
+def test_log4om_listener_ignores_no_call():
+    xml = b'<contactinfo><band>20</band><mode>FT8</mode></contactinfo>'
+    entries = _log4om_run_listener(xml)
+    assert entries == []
+
+
+def test_log4om_stop_listener_is_idempotent():
+    backend = _make_log4om_backend()
+    # stop before ever starting — should not raise
+    backend.stop_log_listener()
+    backend.stop_log_listener()

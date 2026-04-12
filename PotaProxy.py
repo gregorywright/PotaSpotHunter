@@ -114,6 +114,7 @@ import threading
 import time
 import uuid
 import webbrowser
+import xml.etree.ElementTree as ET
 import xmlrpc.client
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
@@ -1019,16 +1020,19 @@ class Log4OmBackend(RigBackend):
     Spec: https://www.log4om.com/l4ong/usermanual/RemoteControlInterface_1_1.pdf
     """
 
-    name                 = "log4om"
-    DEFAULT_PORT         = 2241
+    name                   = "log4om"
+    DEFAULT_PORT           = 2241
     DEFAULT_HEARTBEAT_PORT = 2242
-    HEARTBEAT_TIMEOUT    = 15   # seconds — 3 missed 5s heartbeats
+    DEFAULT_LISTEN_PORT    = 12060   # N1MM <contactinfo> UDP broadcast port
+    HEARTBEAT_TIMEOUT      = 15      # seconds — 3 missed 5s heartbeats
 
     def __init__(self, host: str = "127.0.0.1", port: int = DEFAULT_PORT,
-                 heartbeat_port: int = DEFAULT_HEARTBEAT_PORT):
+                 heartbeat_port: int = DEFAULT_HEARTBEAT_PORT,
+                 listen_port: int = DEFAULT_LISTEN_PORT):
         self.host           = host
         self.port           = port
         self.heartbeat_port = heartbeat_port
+        self.listen_port    = listen_port
 
         self._last_heartbeat          = 0.0
         self._ever_received_heartbeat = False
@@ -1125,6 +1129,109 @@ class Log4OmBackend(RigBackend):
             pass
         return "ok"
 
+    def start_log_listener(self, callback) -> None:
+        """
+        Bind UDP socket on listen_port (default 12060) and listen for N1MM+
+        <contactinfo> XML datagrams that Log4OM broadcasts whenever a QSO is
+        logged.  Calls callback(entry_dict) for each logged QSO.
+
+        N1MM+ contactinfo XML format (fields used):
+          <call>        — callsign logged
+          <band>        — band in meters (e.g. "20" → stored as "20m")
+          <mode>        — mode string (USB/LSB → collapsed to SSB)
+          <rxfreq>/<txfreq> — frequency in tens of Hz (÷100000 → MHz string)
+          <timestamp>   — ISO-like log timestamp
+
+        Log4OM broadcasts on 255.255.255.255:12060 by default.
+        No Log4OM configuration changes needed beyond normal UDP output.
+
+        Runs in a daemon thread. Safe to call multiple times — stops any
+        existing listener first.
+        """
+        self.stop_log_listener()
+
+        self._listener_stop = threading.Event()
+
+        def _listen():
+            try:
+                sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                sock.bind(('', self.listen_port))
+                sock.settimeout(1.0)
+            except OSError as e:
+                log.warning(
+                    "log4om  UDP log listener cannot bind port %d: %s",
+                    self.listen_port, e,
+                )
+                return
+
+            log.info("log4om  UDP log listener started on port %d", self.listen_port)
+            while not self._listener_stop.is_set():
+                try:
+                    data, _ = sock.recvfrom(65535)
+                except socket.timeout:
+                    continue
+                except OSError:
+                    break
+                try:
+                    msg = data.decode('utf-8', errors='replace').strip()
+                    if '<contactinfo>' not in msg:
+                        continue
+                    log.debug("log4om  UDP contactinfo received: %s", msg[:120])
+                    root = ET.fromstring(msg)
+                    call = (root.findtext('call') or '').strip().upper()
+                    if not call:
+                        log.debug("log4om  contactinfo had no <call>: %s", msg[:80])
+                        continue
+                    band_raw = (root.findtext('band') or '').strip()
+                    # band is in meters as a plain number: "20" → "20m"
+                    band = (band_raw + 'm') if band_raw else None
+                    mode = (root.findtext('mode') or '').strip().upper()
+                    if mode in ('USB', 'LSB', 'AM'):
+                        mode = 'SSB'
+                    # txfreq / rxfreq are in tens of Hz; ÷100000 → MHz string
+                    freq_raw = root.findtext('txfreq') or root.findtext('rxfreq') or ''
+                    try:
+                        freq_mhz = str(int(freq_raw) / 100000) if freq_raw else None
+                    except ValueError:
+                        freq_mhz = None
+                    timestamp = (root.findtext('timestamp') or '').strip() or None
+                    log.info(
+                        "log4om  QSO logged: call=%s band=%s mode=%s",
+                        call, band or '?', mode or '?',
+                    )
+                    callback({
+                        'call':          call,
+                        'band':          band,
+                        'mode':          mode or None,
+                        'last_freq_mhz': freq_mhz,
+                        'last_date':     timestamp,
+                        'last_park_ref': None,
+                    })
+                except ET.ParseError as e:
+                    log.debug("log4om  XML parse error: %s", e)
+                except Exception as e:
+                    log.debug("log4om  log listener error: %s", e)
+
+            sock.close()
+            log.info("log4om  UDP log listener stopped")
+
+        self._listener_thread = threading.Thread(
+            target=_listen, daemon=True, name="log4om-log-listener"
+        )
+        self._listener_thread.start()
+
+    def stop_log_listener(self) -> None:
+        """Stop the UDP log listener thread and block until it exits."""
+        stop_event = getattr(self, '_listener_stop', None)
+        if stop_event:
+            stop_event.set()
+        thread = getattr(self, '_listener_thread', None)
+        if thread and thread.is_alive():
+            thread.join(timeout=3)
+        self._listener_stop = None
+        self._listener_thread = None
+
     def tune(self, freq_hz: int, mode: str, callsign: str = "") -> None:
         self._udp_send("SetTxFrequency", Frequency=freq_hz)
         log.info("log4om  SetTxFrequency  %d Hz  (%.3f kHz)", freq_hz, freq_hz / 1000)
@@ -1164,7 +1271,8 @@ def _build_backends(args):
         "flrig":   FlrigBackend(host=args.rig_host, port=args.rig_port),
         "rigctld": RigctldBackend(host=args.rig_host, port=args.rigctld_port),
         "log4om":  Log4OmBackend(host=args.rig_host, port=args.log4om_port,
-                                   heartbeat_port=args.log4om_heartbeat_port),
+                                   heartbeat_port=args.log4om_heartbeat_port,
+                                   listen_port=args.log4om_listen_port),
         "none":    NoneBackend(),
     }
 
@@ -1734,6 +1842,13 @@ def parse_args():
         default=Log4OmBackend.DEFAULT_HEARTBEAT_PORT,
         metavar="PORT",
         help="Port for Log4OM 5-second status heartbeat (default: 2242).",
+    )
+    p.add_argument(
+        "--log4om-listen-port",
+        type=int,
+        default=Log4OmBackend.DEFAULT_LISTEN_PORT,
+        metavar="PORT",
+        help="Port for Log4OM N1MM contactinfo UDP broadcasts (default: 12060).",
     )
     p.add_argument(
         "--no-browser",
